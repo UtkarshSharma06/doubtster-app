@@ -11,16 +11,18 @@
 
 /* menu bar */
 .pg-onb .bar{position:sticky;top:0;z-index:50;background:rgba(244,244,245,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);height:50px;width:100%}
-.pg-onb .bar .in{height:50px;width:100%;box-sizing:border-box;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 16px;font-size:15px;position:relative}
-.pg-onb .bar .l{display:flex;align-items:center;gap:18px;justify-content:flex-start}
-.pg-onb .bar nav{display:flex;gap:18px;color:var(--mute)}
-.pg-onb .bar nav a{color:var(--mute);text-decoration:none;transition:color .15s}
-.pg-onb .bar nav a:hover{color:var(--ink)}
+.pg-onb .bar .in{height:50px;width:100%;box-sizing:border-box;display:flex;align-items:center;padding:0 16px;gap:18px;font-size:15px;position:relative}
+.pg-onb .bar .brand{display:flex;align-items:center}
+.pg-onb .bar .brand img{height:36px;width:auto;display:block}
+.pg-onb .bar nav.nav-desk{display:flex;gap:18px;color:var(--mute)}
+.pg-onb .bar nav.nav-desk a{color:var(--mute);text-decoration:none;transition:color .15s}
+.pg-onb .bar nav.nav-desk a:hover{color:var(--ink)}
 .pg-onb .bar b{font-weight:600}
-.pg-onb .bar .logo{display:flex;align-items:center;justify-content:center;justify-self:center;position:static;transform:none}
-.pg-onb .bar .r{display:flex;gap:12px;align-items:center;justify-content:flex-end;justify-self:flex-end;color:var(--mute);font-size:14px}
-.pg-onb .bar .r a{color:var(--blue);font-weight:500;font-size:15px}
-@media(max-width:760px){.pg-onb .bar nav,.pg-onb .bar .r span{display:none}}
+.pg-onb .bar .logo{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center}
+.pg-onb .bar .logo img{display:block;border-radius:7px}
+.pg-onb .bar .r{margin-left:auto;display:flex;gap:14px;align-items:center;color:var(--mute);font-size:14px}
+.pg-onb .bar .r a{color:var(--blue);font-weight:500;font-size:15px;text-decoration:none}
+@media(max-width:760px){.pg-onb .bar nav.nav-desk,.pg-onb .bar .r span,.pg-onb .bar .logo{display:none}}
 
 /* hero */
 .pg-onb .hero{position:relative;padding-bottom:60px;overflow:hidden}

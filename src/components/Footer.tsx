@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Year } from "./Year";
+import { site } from "@/lib/config";
 
 export function Footer({ mark = true, resources }: { mark?: boolean; resources?: { href: string; label: string }[] }) {
   const res = resources ?? [
-    { href: "/examples", label: "examples" },
-    { href: "/blog", label: "blog" },
-    { href: "/#faq", label: "faq" },
+    { href: site("/examples"), label: "examples" },
+    { href: site("/blog"), label: "blog" },
+    { href: site("/#faq"), label: "faq" },
   ];
   return (
     <footer>
@@ -13,22 +14,22 @@ export function Footer({ mark = true, resources }: { mark?: boolean; resources?:
         <div>
           <h4>product</h4>
           <Link href="/app">open app</Link>
-          <Link href="/#features">features</Link>
-          <Link href="/#pricing">pricing</Link>
+          <a href={site("/#features")}>features</a>
+          <a href={site("/#pricing")}>pricing</a>
           <Link href="/signup">start trial</Link>
           <Link href="/login">log in</Link>
         </div>
         <div>
           <h4>resources</h4>
           {res.map((r) => (
-            <Link key={r.href} href={r.href}>{r.label}</Link>
+            <a key={r.href} href={r.href}>{r.label}</a>
           ))}
         </div>
         <div>
           <h4>legal</h4>
-          <Link href="/terms">terms</Link>
-          <Link href="/privacy">privacy</Link>
-          <Link href="/refund-policy">refund policy</Link>
+          <a href={site("/terms")}>terms</a>
+          <a href={site("/privacy")}>privacy</a>
+          <a href={site("/refund-policy")}>refund policy</a>
         </div>
         <div>
           <h4>contact</h4>

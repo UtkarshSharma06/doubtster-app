@@ -6,8 +6,8 @@
 export const DEMO = process.env.NEXT_PUBLIC_DEMO !== "false";
 
 /** Your marketing site (landing, blog, legal pages). Empty string = same origin. */
-export const SITE = (process.env.NEXT_PUBLIC_MARKETING_URL ?? "").replace(/\/$/, "");
-export const site = (path: string) => SITE + path;
+export const SITE = (process.env.NEXT_PUBLIC_MARKETING_URL || "https://doubtster.com").replace(/\/$/, "");
+export const site = (path: string) => `${SITE}${path.startsWith('/') ? path : `/${path}`}`;
 
 export const AUTH = {
   GOOGLE_URL: "/api/auth/google", // server route that starts Google OAuth, then redirects back

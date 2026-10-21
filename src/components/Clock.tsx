@@ -9,5 +9,5 @@ export function Clock() {
     const id = window.setInterval(tick, 30000);
     return () => window.clearInterval(id);
   }, []);
-  return <span suppressHydrationWarning>{t}</span>;
+  return <span id="clock" suppressHydrationWarning>{t}</span>;
 }
