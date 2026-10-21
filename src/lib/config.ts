@@ -5,8 +5,9 @@
  */
 export const DEMO = process.env.NEXT_PUBLIC_DEMO !== "false";
 
-/** Your marketing site (landing, blog, legal pages). Empty string = same origin. */
-export const SITE = (process.env.NEXT_PUBLIC_MARKETING_URL || "https://doubtster.com").replace(/\/$/, "");
+/** Your marketing site (landing, blog, legal pages). Main domain is doubtster.com (never localhost) */
+const envMarketing = process.env.NEXT_PUBLIC_MARKETING_URL;
+export const SITE = (envMarketing && !envMarketing.includes("localhost") ? envMarketing : "https://doubtster.com").replace(/\/$/, "");
 export const site = (path: string) => `${SITE}${path.startsWith('/') ? path : `/${path}`}`;
 
 export const AUTH = {
