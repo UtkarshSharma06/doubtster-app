@@ -45,14 +45,26 @@ export async function updateSession(request: NextRequest) {
 
   const isDevBypass = process.env.NODE_ENV === 'development' && (request.cookies.get('dev_auth')?.value === 'true' || request.nextUrl.searchParams.get('dev_auth') === 'true');
 
+  const getRedirectUrl = (pathname: string) => {
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+    const proto = request.headers.get('x-forwarded-proto') || 'https';
+    if (host && !host.includes('localhost')) {
+      return new URL(pathname, `${proto}://${host}`);
+    }
+    if (process.env.NODE_ENV === 'production') {
+      return new URL(pathname, 'https://app.doubtster.com');
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = pathname;
+    return url;
+  };
+
   if (
     !user &&
     !isDevBypass &&
     (request.nextUrl.pathname.startsWith('/app') || request.nextUrl.pathname.startsWith('/onboarding'))
   ) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return NextResponse.redirect(getRedirectUrl('/login'));
   }
 
   // If user is logged in, redirect them away from auth pages to /app
@@ -60,9 +72,7 @@ export async function updateSession(request: NextRequest) {
     user &&
     (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup'))
   ) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/app'
-    return NextResponse.redirect(url)
+    return NextResponse.redirect(getRedirectUrl('/app'));
   }
 
   return supabaseResponse
