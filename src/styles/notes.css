@@ -1,0 +1,1298 @@
+/* ==========================================================================
+   Doubtster Notes: Sticky-Note Board UI
+   ========================================================================== */
+
+.doubtster-notes-screen {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px 16px 80px 16px;
+  box-sizing: border-box;
+}
+
+/* Toast Notification */
+.doubtster-notes-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  background: #1E293B;
+  color: #F8FAFC;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  animation: doubtster-toast-in 200ms ease-out forwards;
+}
+
+@keyframes doubtster-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==========================================================================
+   Header Card
+   ========================================================================== */
+
+.doubtster-notes-header-card {
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  padding: 24px 28px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.doubtster-notes-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.doubtster-notes-titles {
+  flex: 1;
+  min-width: 260px;
+}
+
+.doubtster-notes-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.doubtster-subject-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #E0F2FE;
+  color: #0369A1;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.doubtster-all-notes-btn {
+  background: transparent;
+  border: none;
+  color: #64748B;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 150ms ease;
+}
+
+.doubtster-all-notes-btn:hover {
+  color: #0F172A;
+  background: #F1F5F9;
+}
+
+.doubtster-notes-h1 {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0F172A;
+  margin: 0;
+  line-height: 1.25;
+}
+
+.doubtster-notes-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doubtster-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #F8FAFC;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.doubtster-header-btn:hover {
+  background: #FFFFFF;
+  border-color: #94A3B8;
+  color: #0F172A;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.doubtster-header-btn.active {
+  background: #FEF08A;
+  border-color: #EAB308;
+  color: #854D0E;
+}
+
+/* TLDR Quote Box */
+.doubtster-notes-tldr-box {
+  margin-top: 18px;
+  padding: 14px 20px;
+  background: #FEF9C3;
+  border-left: 4px solid #F59E0B;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  position: relative;
+}
+
+.doubtster-tldr-quote-mark {
+  font-size: 32px;
+  line-height: 1;
+  color: #D97706;
+  font-family: Georgia, serif;
+}
+
+.doubtster-notes-tldr-quote {
+  margin: 0;
+  font-family: var(--font-handwriting, "Caveat", "Kalam", cursive);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #78350F;
+}
+
+/* "Turn this note into" action row */
+.doubtster-turn-note-row {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.doubtster-turn-note-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.doubtster-turn-note-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.doubtster-turn-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #FFFFFF;
+  cursor: pointer;
+  transition: all 160ms ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.doubtster-turn-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.07);
+}
+
+.doubtster-turn-btn.video { border-left: 4px solid #E11D48; }
+.doubtster-turn-btn.flash { border-left: 4px solid #2563EB; }
+.doubtster-turn-btn.quiz { border-left: 4px solid #16A34A; }
+
+.doubtster-turn-btn-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.doubtster-turn-btn-text b {
+  font-size: 12.5px;
+  color: #0F172A;
+  line-height: 1.2;
+}
+
+.doubtster-turn-btn-text small {
+  font-size: 11px;
+  color: #64748B;
+}
+
+/* ==========================================================================
+   Main Layout: TOC Sidebar + Boards
+   ========================================================================== */
+
+.doubtster-notes-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  margin-top: 20px;
+}
+
+/* Sticky Left Table of Contents */
+.doubtster-notes-toc-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 72px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 14px 10px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+}
+
+.doubtster-toc-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #94A3B8;
+  padding: 4px 8px 8px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  margin-bottom: 8px;
+}
+
+.doubtster-toc-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.doubtster-toc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.doubtster-toc-item:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+.doubtster-toc-item.active {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  font-weight: 700;
+}
+
+.doubtster-toc-icon {
+  font-size: 15px;
+}
+
+.doubtster-toc-heading {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Main Board Area */
+.doubtster-notes-board-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ==========================================================================
+   Section Bands & Masonry Layout
+   ========================================================================== */
+
+.doubtster-section-band {
+  margin-bottom: 36px;
+  animation: doubtster-sec-fade 380ms ease-out forwards;
+}
+
+@keyframes doubtster-sec-fade {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.doubtster-section-band-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  margin-bottom: 18px;
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.doubtster-section-icon {
+  font-size: 20px;
+}
+
+.doubtster-section-h2 {
+  font-size: 18px;
+  font-weight: 800;
+  color: #1E293B;
+  margin: 0;
+}
+
+/* CSS Grid Board: auto rows, no card overlap */
+.doubtster-masonry-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+  gap: 20px;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .doubtster-masonry-board {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+/* ==========================================================================
+   Card Styling by Type
+   ========================================================================== */
+
+.doubtster-sticky-card {
+  height: auto;
+  min-height: auto;
+  overflow: visible;
+  margin-bottom: 0;
+  padding: 18px 20px 20px 20px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  color: #1C2233;
+  transform: rotate(var(--rot, 0deg));
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease;
+  animation: doubtster-card-stagger 320ms ease-out both;
+  animation-delay: calc(var(--stagger-idx, 0) * 60ms);
+}
+
+@media (max-width: 640px) {
+  .doubtster-sticky-card {
+    transform: none !important;
+    --rot: 0deg !important;
+  }
+}
+
+@keyframes doubtster-card-stagger {
+  from { opacity: 0; transform: translateY(8px) rotate(var(--rot, 0deg)); }
+  to { opacity: 1; transform: translateY(0) rotate(var(--rot, 0deg)); }
+}
+
+.doubtster-sticky-card:hover {
+  transform: rotate(0deg) translateY(-3px) scale(1.01);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12), 0 2px 5px rgba(0, 0, 0, 0.05);
+  z-index: 10;
+}
+
+/* Folded Corner */
+.doubtster-sticky-card::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 14px 14px;
+  border-color: transparent transparent rgba(0, 0, 0, 0.15) transparent;
+  pointer-events: none;
+}
+
+/* Pin & Tape - kept safely above the card top edge */
+.doubtster-card-pin {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #E53935;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.doubtster-card-tape {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(2px);
+  z-index: 5;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* Card Header & Actions */
+.doubtster-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.doubtster-card-tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.doubtster-card-label {
+  font-family: var(--font-handwriting, "Caveat", "Kalam", cursive);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1F2937;
+}
+
+.doubtster-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.doubtster-sticky-card:hover .doubtster-card-actions {
+  opacity: 1;
+}
+
+.doubtster-card-action-btn {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 5px;
+  padding: 4px;
+  cursor: pointer;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 120ms ease;
+}
+
+.doubtster-card-action-btn:hover {
+  background: #FFFFFF;
+  color: #0F172A;
+  transform: scale(1.1);
+}
+
+.doubtster-card-action-btn.active {
+  color: #E11D48;
+}
+
+/* Card Type Palettes */
+.doubtster-card-key {
+  background: #FFF176;
+  color: #262626;
+}
+.doubtster-card-key::after {
+  border-color: transparent transparent #E0C800 transparent;
+}
+
+.doubtster-card-definition {
+  background: #FFCC80;
+  color: #374151;
+}
+.doubtster-card-definition::after {
+  border-color: transparent transparent #FFA726 transparent;
+}
+
+.doubtster-card-points {
+  background: #FFFFFF;
+  border-left: 5px solid #10B981;
+  color: #1F2937;
+}
+
+.doubtster-card-steps {
+  background: #B3E5FC;
+  color: #0F172A;
+}
+.doubtster-card-steps::after {
+  border-color: transparent transparent #81D4FA transparent;
+}
+
+.doubtster-card-formula {
+  background: #90CAF9;
+  color: #0F172A;
+}
+.doubtster-card-formula::after {
+  border-color: transparent transparent #64B5F6 transparent;
+}
+
+.doubtster-card-example {
+  background: #B2DFDB;
+  color: #064E3B;
+}
+.doubtster-card-example::after {
+  border-color: transparent transparent #80CBC4 transparent;
+}
+
+.doubtster-card-warning {
+  background: #FF8A80;
+  color: #7F1D1D;
+}
+.doubtster-card-warning::after {
+  border-color: transparent transparent #FF5252 transparent;
+}
+
+.doubtster-card-tip {
+  background: #CE93D8;
+  color: #4A044E;
+}
+.doubtster-card-tip::after {
+  border-color: transparent transparent #BA68C8 transparent;
+}
+
+.doubtster-card-compare,
+.doubtster-card-timeline,
+.doubtster-card-chart,
+.doubtster-card-diagram,
+.doubtster-card-figure,
+.doubtster-card-image {
+  background: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Card Body Typography */
+.doubtster-card-body {
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.doubtster-definition-term {
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.doubtster-points-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.doubtster-points-list li {
+  margin-bottom: 6px;
+}
+
+.doubtster-steps-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doubtster-step-row {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.1);
+}
+
+.doubtster-step-row:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.doubtster-step-action {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.doubtster-step-idx {
+  color: #0284C7;
+  font-weight: 800;
+}
+
+.doubtster-step-why {
+  font-size: 13px;
+  color: #334155;
+  margin-left: 14px;
+}
+
+.doubtster-step-math {
+  margin-top: 6px;
+  margin-left: 14px;
+}
+
+.doubtster-formula-inset {
+  background: rgba(0, 0, 0, 0.07);
+  padding: 12px 16px;
+  border-radius: 6px;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.doubtster-formula-note {
+  font-size: 12.5px;
+  font-style: italic;
+  color: #1E293B;
+}
+
+.doubtster-compare-table-wrapper {
+  overflow-x: auto;
+}
+
+.doubtster-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.doubtster-compare-table th {
+  background: #F1F5F9;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  font-weight: 700;
+}
+
+.doubtster-compare-table td {
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Timeline */
+.doubtster-timeline-track {
+  position: relative;
+  padding-left: 20px;
+  border-left: 2px solid #3B82F6;
+  margin-left: 6px;
+}
+
+.doubtster-timeline-node {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.doubtster-timeline-dot {
+  position: absolute;
+  left: -26px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3B82F6;
+  border: 2px solid #FFFFFF;
+}
+
+.doubtster-timeline-when {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563EB;
+}
+
+.doubtster-timeline-what {
+  font-size: 13.5px;
+  color: #1E293B;
+}
+
+/* In-Card Embeds */
+.doubtster-chart-embed,
+.doubtster-diagram-embed,
+.doubtster-figure-embed,
+.doubtster-image-embed {
+  margin-top: 6px;
+}
+
+/* Highlight Yellow Marker */
+.doubtster-note-mark {
+  background: #FEF08A;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  color: #854D0E;
+}
+
+.highlights-off .doubtster-note-mark {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+/* Pinned Cards Strip */
+.doubtster-pinned-strip {
+  background: rgba(254, 240, 138, 0.25);
+  border: 2px dashed #EAB308;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 30px;
+}
+
+.doubtster-pinned-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #A16207;
+  margin-bottom: 14px;
+}
+
+/* ==========================================================================
+   Exam Tips (Wide Green Note with Checklist)
+   ========================================================================== */
+
+.doubtster-exam-tips-card {
+  background: #C8E6C9;
+  border-radius: 8px;
+  padding: 22px 26px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  position: relative;
+  margin-bottom: 30px;
+}
+
+.doubtster-exam-tips-card::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 0 16px 16px;
+  border-color: transparent transparent #A5D6A7 transparent;
+}
+
+.doubtster-exam-tips-header {
+  margin-bottom: 14px;
+}
+
+.doubtster-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.doubtster-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 15px;
+  color: #14532D;
+}
+
+.doubtster-checklist-box {
+  background: #16A34A;
+  color: #FFFFFF;
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Self Test Flip Cards
+   ========================================================================== */
+
+.doubtster-self-test-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.doubtster-flip-card {
+  perspective: 1000px;
+  min-height: 180px;
+  cursor: pointer;
+}
+
+.doubtster-flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-style: preserve-3d;
+}
+
+.doubtster-flip-card.flipped .doubtster-flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.doubtster-flip-card-front,
+.doubtster-flip-card-back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.doubtster-flip-card-front {
+  background: #FFF9C4;
+  border: 1px solid #FBC02D;
+}
+
+.doubtster-flip-card-back {
+  background: #E8F5E9;
+  border: 1px solid #81C784;
+  transform: rotateY(180deg);
+}
+
+.doubtster-flip-card-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  color: #374151;
+}
+
+.doubtster-flip-card-badge.ans {
+  background: #16A34A;
+  color: #FFFFFF;
+}
+
+.doubtster-flip-card-q {
+  font-weight: 600;
+  font-size: 15px;
+  color: #1F2937;
+  margin: 12px 0;
+}
+
+.doubtster-flip-card-a {
+  font-size: 14.5px;
+  color: #14532D;
+  margin: 12px 0;
+}
+
+.doubtster-flip-btn {
+  align-self: flex-end;
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1F2937;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.doubtster-flip-btn:hover {
+  background: #0F172A;
+  color: #FFFFFF;
+}
+
+/* ==========================================================================
+   Responsive & Mobile (375px+)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .doubtster-notes-layout {
+    flex-direction: column;
+  }
+
+  .doubtster-notes-toc-sidebar {
+    width: 100%;
+    position: sticky;
+    top: 50px;
+    z-index: 20;
+    max-height: none;
+    padding: 8px;
+    margin-bottom: 16px;
+  }
+
+  .doubtster-toc-title {
+    display: none;
+  }
+
+  .doubtster-toc-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    gap: 6px;
+  }
+
+  .doubtster-toc-item {
+    flex-shrink: 0;
+    width: auto;
+    padding: 6px 12px;
+    background: #F1F5F9;
+    border-radius: 20px;
+    font-size: 12px;
+  }
+
+  .doubtster-notes-header-card {
+    padding: 18px 16px;
+  }
+
+  .doubtster-notes-h1 {
+    font-size: 22px;
+  }
+
+  .doubtster-notes-tldr-quote {
+    font-size: 18px;
+  }
+}
+
+/* ==========================================================================
+   Badges, Steps Rows & Card Content Styles
+   ========================================================================== */
+
+.doubtster-source-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+}
+
+.doubtster-source-badge.doubtster-source-json {
+  background: #DCFCE7;
+  color: #166534;
+  border: 1px solid #86EFAC;
+}
+
+.doubtster-source-badge.doubtster-source-fallback {
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+}
+
+.doubtster-calc-check-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #15803D;
+  color: #FFFFFF;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  margin-left: 6px;
+}
+
+.doubtster-step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.doubtster-step-row:last-child {
+  margin-bottom: 0;
+}
+
+.doubtster-step-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1C2233;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.doubtster-step-details {
+  flex: 1;
+}
+
+.doubtster-step-action strong {
+  font-size: 14px;
+  color: #1C2233;
+  line-height: 1.4;
+}
+
+.doubtster-step-why em {
+  font-size: 13px;
+  color: #334155;
+  font-style: italic;
+  display: block;
+  margin-top: 3px;
+}
+
+.doubtster-step-math {
+  margin-top: 6px;
+}
+
+.doubtster-card-inner-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1C2233;
+  margin: 0 0 10px 0;
+}
+
+/* ==========================================================================
+   Dark Mode Adaptation (contrast >= 4.5:1)
+   Keep notes pastel with DARK text (#1c2233) on them!
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #0B0F19;
+  }
+  .doubtster-notes-screen {
+    background: transparent;
+  }
+  .doubtster-notes-header-card {
+    background: #1E293B;
+    border-color: #334155;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  .doubtster-notes-h1 {
+    color: #F8FAFC;
+  }
+  .doubtster-header-btn {
+    background: #334155;
+    border-color: #475569;
+    color: #F8FAFC;
+  }
+  .doubtster-header-btn:hover {
+    background: #475569;
+    color: #FFFFFF;
+    border-color: #64748B;
+  }
+  .doubtster-header-btn.active {
+    background: #FEF08A;
+    border-color: #EAB308;
+    color: #1C2233;
+  }
+  .doubtster-all-notes-btn {
+    color: #94A3B8;
+  }
+  .doubtster-all-notes-btn:hover {
+    color: #F8FAFC;
+    background: #334155;
+  }
+  .doubtster-turn-note-label {
+    color: #94A3B8;
+  }
+  .doubtster-turn-btn {
+    background: #1E293B;
+    border-color: #334155;
+  }
+  .doubtster-turn-btn:hover {
+    background: #334155;
+    border-color: #475569;
+  }
+  .doubtster-turn-btn-text b {
+    color: #F8FAFC;
+  }
+  .doubtster-turn-btn-text small {
+    color: #94A3B8;
+  }
+  .doubtster-notes-toc-sidebar {
+    background: #1E293B;
+    border-color: #334155;
+  }
+  .doubtster-toc-title {
+    color: #94A3B8;
+    border-bottom-color: #334155;
+  }
+  .doubtster-toc-item {
+    color: #CBD5E1;
+  }
+  .doubtster-toc-item:hover {
+    background: #334155;
+    color: #FFFFFF;
+  }
+  .doubtster-toc-item.active {
+    background: #2563EB;
+    color: #FFFFFF;
+  }
+  .doubtster-section-band-header {
+    background: #1E293B;
+    border: 1px solid #334155;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  .doubtster-section-h2 {
+    color: #F8FAFC;
+  }
+  .doubtster-notes-tldr-box {
+    background: #2D1A05;
+    border-left-color: #F59E0B;
+  }
+  .doubtster-notes-tldr-quote {
+    color: #FEF08A;
+  }
+  .doubtster-tldr-quote-mark {
+    color: #D97706;
+  }
+}
+
+/* Also support [data-theme="dark"] attribute */
+[data-theme="dark"] body {
+  background: #0B0F19;
+}
+[data-theme="dark"] .doubtster-notes-header-card {
+  background: #1E293B;
+  border-color: #334155;
+}
+[data-theme="dark"] .doubtster-notes-h1 {
+  color: #F8FAFC;
+}
+[data-theme="dark"] .doubtster-header-btn {
+  background: #334155;
+  border-color: #475569;
+  color: #F8FAFC;
+}
+[data-theme="dark"] .doubtster-header-btn:hover {
+  background: #475569;
+  color: #FFFFFF;
+}
+[data-theme="dark"] .doubtster-header-btn.active {
+  background: #FEF08A;
+  border-color: #EAB308;
+  color: #1C2233;
+}
+[data-theme="dark"] .doubtster-turn-btn {
+  background: #1E293B;
+  border-color: #334155;
+}
+[data-theme="dark"] .doubtster-turn-btn-text b {
+  color: #F8FAFC;
+}
+[data-theme="dark"] .doubtster-turn-btn-text small {
+  color: #94A3B8;
+}
+[data-theme="dark"] .doubtster-notes-toc-sidebar {
+  background: #1E293B;
+  border-color: #334155;
+}
+[data-theme="dark"] .doubtster-toc-item {
+  color: #CBD5E1;
+}
+[data-theme="dark"] .doubtster-toc-item:hover {
+  background: #334155;
+  color: #FFFFFF;
+}
+[data-theme="dark"] .doubtster-toc-item.active {
+  background: #2563EB;
+  color: #FFFFFF;
+}
+[data-theme="dark"] .doubtster-section-band-header {
+  background: #1E293B;
+  border: 1px solid #334155;
+}
+[data-theme="dark"] .doubtster-section-h2 {
+  color: #F8FAFC;
+}
+[data-theme="dark"] .doubtster-notes-tldr-box {
+  background: #2D1A05;
+  border-left-color: #F59E0B;
+}
+[data-theme="dark"] .doubtster-notes-tldr-quote {
+  color: #FEF08A;
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .doubtster-sticky-card {
+    animation: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .doubtster-sticky-card:hover {
+    transform: none !important;
+  }
+  .doubtster-section-band {
+    animation: none !important;
+  }
+  .doubtster-flip-card-inner {
+    transition: none !important;
+  }
+}
+
+/* Print and PDF Export Optimization */
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  .bar,
+  .side,
+  .doubtster-notes-toc-sidebar,
+  .doubtster-notes-header-actions,
+  .doubtster-turn-note-row,
+  .doubtster-card-actions,
+  .doubtster-flip-btn,
+  .doubtster-all-notes-btn {
+    display: none !important;
+  }
+  .doubtster-notes-screen {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  .doubtster-notes-layout {
+    display: block !important;
+  }
+  .doubtster-masonry-board {
+    columns: 1 !important;
+  }
+  .doubtster-sticky-card {
+    transform: none !important;
+    box-shadow: none !important;
+    border: 1px solid #CCCCCC !important;
+    break-inside: avoid !important;
+    margin-bottom: 14px !important;
+  }
+  .doubtster-section-band {
+    break-after: page !important;
+  }
+  .doubtster-flip-card {
+    min-height: auto !important;
+  }
+  .doubtster-flip-card-inner {
+    position: static !important;
+    transform: none !important;
+  }
+  .doubtster-flip-card-front,
+  .doubtster-flip-card-back {
+    position: static !important;
+    transform: none !important;
+    box-shadow: none !important;
+    margin-bottom: 8px !important;
+  }
+}

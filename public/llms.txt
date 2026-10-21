@@ -1,0 +1,21 @@
+# Doubtster
+
+> Doubtster is an AI homework helper. Students ask a question in any subject and get a free step-by-step answer in chat. Any answer can be turned into a short narrated explainer video, where a voice explains each step while the working is written on a board, with diagrams, graphs and code drawn in.
+
+- Website: https://doubtster.com
+- Subjects: maths (algebra, calculus, statistics, trigonometry), physics, chemistry, biology, economics, accounting, finance, coding
+- Languages: English, French, Spanish, Hindi
+- Pricing: chat is free; video trial $1.99 for 7 days with 3 videos; monthly $7.99 for 30 video credits; yearly $59
+- Maths steps are checked with a computer algebra system (SymPy) before a video is made. AI answers can still contain mistakes.
+
+## Example lessons (video and full transcript)
+
+- [Integral of x sin x from 0 to π/2, solved by parts](https://doubtster.com/examples/integral-of-x-sin-x-integration-by-parts)
+- [Block sliding down a 30° incline with friction: find the acceleration](https://doubtster.com/examples/block-sliding-down-incline-with-friction)
+- [Median of two sorted arrays, explained with binary search](https://doubtster.com/examples/median-of-two-sorted-arrays)
+- [Why is DNA replication semiconservative?](https://doubtster.com/examples/why-dna-replication-is-semiconservative)
+
+## Pages
+
+- [Home](https://doubtster.com/): what Doubtster does, pricing and FAQ
+- [Example lessons](https://doubtster.com/examples)

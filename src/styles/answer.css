@@ -1,0 +1,1253 @@
+/* ==========================================================================
+   Doubtster Answer Renderer & Sticky Note Highlight Styles
+   ========================================================================== */
+
+/* Handwriting fonts for note labels */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Kalam:wght@700&display=swap');
+
+:root {
+  --note-key-bg: #FFF176;
+  --note-key-text: #1C1917;
+  --note-formula-bg: #90CAF9;
+  --note-formula-text: #0D233A;
+  --note-warning-bg: #FF8A80;
+  --note-warning-text: #3D0B0B;
+  --note-tip-bg: #CE93D8;
+  --note-tip-text: #2A0B33;
+  --note-answer-bg: #A5D6A7;
+  --note-answer-text: #0A2B12;
+  --note-answer-border: #66BB6A;
+}
+
+/* Base Answer Layout */
+.doubtster-answer-wrapper {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: #1F2937;
+  box-sizing: border-box;
+}
+
+/* Toolbar at top */
+.doubtster-answer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px dashed #E5E7EB;
+  gap: 12px;
+}
+
+.doubtster-answer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.08);
+  padding: 4px 10px;
+  border-radius: 99px;
+}
+
+.doubtster-highlights-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid #D1D5DB;
+  background: #FFFFFF;
+  color: #4B5563;
+  cursor: pointer;
+  transition: all 180ms ease;
+  user-select: none;
+}
+
+.doubtster-highlights-toggle:hover {
+  background: #F9FAFB;
+  border-color: #9CA3AF;
+  color: #111827;
+}
+
+.doubtster-highlights-toggle.active {
+  background: linear-gradient(135deg, #FEF08A, #FDE047);
+  border-color: #EAB308;
+  color: #713F12;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(234, 179, 8, 0.25);
+}
+
+.doubtster-highlights-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Main Content Typography */
+.doubtster-markdown-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.doubtster-markdown-content > p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+/* Headings with clear spacing */
+.doubtster-h2 {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #111827;
+  margin: 22px 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doubtster-h2:first-child {
+  margin-top: 0;
+}
+
+.doubtster-h2-icon {
+  width: 18px;
+  height: 18px;
+  color: #3B82F6;
+  flex-shrink: 0;
+}
+
+/* Quick Answer Section */
+.doubtster-quick-answer {
+  background: #F8FAFC;
+  border-left: 4px solid #3B82F6;
+  border-radius: 0 8px 8px 0;
+  padding: 12px 16px;
+  font-size: 16.5px;
+  font-weight: 500;
+  color: #0F172A;
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+
+/* ==========================================================================
+   Step Cards (Numbered cards under Solution)
+   ========================================================================== */
+.doubtster-step-card {
+  position: relative;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin: 8px 0 14px 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.doubtster-step-card:hover {
+  border-color: #BFDBFE;
+  box-shadow: 0 4px 12px -2px rgba(59, 130, 246, 0.08);
+}
+
+.doubtster-step-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.doubtster-step-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #2563EB;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
+}
+
+.doubtster-step-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  letter-spacing: -0.01em;
+}
+
+.doubtster-step-body {
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: #374151;
+  padding-left: 38px;
+}
+
+@media (max-width: 600px) {
+  .doubtster-step-body {
+    padding-left: 0;
+  }
+}
+
+/* Math centered in a slightly darker box inside step cards */
+.doubtster-step-card .katex-display,
+.doubtster-step-card .doubtster-math-box,
+.doubtster-markdown-content > .katex-display {
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) inset;
+}
+
+.doubtster-step-card .katex-display .katex,
+.doubtster-markdown-content > .katex-display .katex {
+  display: inline-block;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Sticky Notes (Highlight Effect)
+   ========================================================================== */
+.doubtster-sticky-note {
+  position: relative;
+  border-radius: 6px;
+  padding: 18px 20px 18px 20px;
+  margin: 14px 0 16px 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: transform 220ms ease, box-shadow 220ms ease;
+  overflow: visible;
+  /* Folded bottom-right corner using CSS linear-gradient mask / clipping */
+  background: var(--note-bg);
+  color: var(--note-text);
+  transform: rotate(var(--note-rot, 0deg));
+  transform-origin: center center;
+  animation: noteSlideIn 250ms ease-out forwards;
+  animation-delay: calc(var(--note-idx, 0) * 80ms);
+  opacity: 0;
+}
+
+@keyframes noteSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) rotate(0deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(var(--note-rot, 0deg));
+  }
+}
+
+/* Folded corner flap in the bottom-right corner */
+.doubtster-sticky-note::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.12) 50%),
+              linear-gradient(to top left, transparent 50%, rgba(255, 255, 255, 0.75) 50%);
+  border-top-left-radius: 3px;
+  box-shadow: -1px -1px 3px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+}
+
+/* Tape strip or pin at the top */
+.doubtster-note-pin,
+.doubtster-note-tape {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Tape strip style */
+.doubtster-note-tape {
+  width: 46px;
+  height: 15px;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  border-left: 2px dashed rgba(0, 0, 0, 0.1);
+  border-right: 2px dashed rgba(0, 0, 0, 0.1);
+  transform: translateX(-50%) rotate(-1deg);
+  backdrop-filter: blur(2px);
+}
+
+/* Pushpin style */
+.doubtster-note-pin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #EF4444, #991B1B);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.doubtster-note-pin::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 2px;
+  height: 5px;
+  background: #71717A;
+  transform: translateX(-50%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Hover: straightens to 0deg and lifts slightly */
+.doubtster-sticky-note:hover {
+  transform: rotate(0deg) translateY(-3px) scale(1.008);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12), 0 3px 6px rgba(0, 0, 0, 0.06);
+}
+
+/* Note Header: icon + label */
+.doubtster-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 10px;
+}
+
+.doubtster-note-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.doubtster-note-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+/* Caveat / Kalam handwriting font ONLY for the label */
+.doubtster-note-label {
+  font-family: 'Kalam', 'Caveat', cursive, sans-serif;
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+/* Normal font for content */
+.doubtster-note-content {
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 15.5px;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+.doubtster-note-content p {
+  margin: 0;
+}
+
+/* Key Note (Yellow) */
+.doubtster-note-key {
+  --note-bg: var(--note-key-bg);
+  --note-text: var(--note-key-text);
+  --note-rot: -1deg;
+}
+
+/* Formula Note (Blue) */
+.doubtster-note-formula {
+  --note-bg: var(--note-formula-bg);
+  --note-text: var(--note-formula-text);
+  --note-rot: 0.8deg;
+}
+
+.doubtster-note-formula .doubtster-note-content {
+  text-align: center;
+}
+
+.doubtster-note-formula .katex-display {
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(13, 35, 58, 0.1);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 6px 0;
+}
+
+/* Warning Note (Pink/Red) */
+.doubtster-note-warning {
+  --note-bg: var(--note-warning-bg);
+  --note-text: var(--note-warning-text);
+  --note-rot: -0.6deg;
+}
+
+/* Tip Note (Purple) */
+.doubtster-note-tip {
+  --note-bg: var(--note-tip-bg);
+  --note-text: var(--note-tip-text);
+  --note-rot: 0.6deg;
+}
+
+/* Answer Note (Green) */
+.doubtster-note-answer {
+  --note-bg: var(--note-answer-bg);
+  --note-text: var(--note-answer-text);
+  --note-rot: 0deg;
+  border: 2px solid var(--note-answer-border);
+  box-shadow: 0 4px 18px rgba(76, 175, 80, 0.28), 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 20px 22px;
+  animation: noteSlideIn 250ms ease-out forwards, answerPulse 700ms ease-in-out 350ms 1;
+}
+
+.doubtster-note-answer .doubtster-note-label {
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.doubtster-note-answer .doubtster-note-content {
+  font-size: 16.5px;
+  font-weight: 600;
+}
+
+/* Short pulse animation once for final answer */
+@keyframes answerPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+    box-shadow: 0 6px 26px rgba(76, 175, 80, 0.45), 0 2px 6px rgba(0, 0, 0, 0.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Copy Answer Button */
+.doubtster-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(10, 43, 18, 0.25);
+  background: rgba(255, 255, 255, 0.65);
+  color: #0A2B12;
+  cursor: pointer;
+  transition: all 160ms ease;
+  user-select: none;
+}
+
+.doubtster-copy-btn:hover {
+  background: #FFFFFF;
+  border-color: #0A2B12;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.doubtster-copy-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* When highlights are toggled OFF */
+.doubtster-answer-wrapper.highlights-disabled .doubtster-sticky-note {
+  background: #F9FAFB !important;
+  color: #1F2937 !important;
+  border: 1px solid #E5E7EB !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  transform: none !important;
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+.doubtster-answer-wrapper.highlights-disabled .doubtster-sticky-note::after {
+  display: none !important;
+}
+
+.doubtster-answer-wrapper.highlights-disabled .doubtster-note-pin,
+.doubtster-answer-wrapper.highlights-disabled .doubtster-note-tape {
+  display: none !important;
+}
+
+.doubtster-answer-wrapper.highlights-disabled .doubtster-sticky-note:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ==========================================================================
+   Inline Highlights (==text== / <mark>)
+   ========================================================================== */
+.doubtster-inline-mark {
+  background: linear-gradient(180deg, transparent 52%, rgba(255, 235, 59, 0.72) 52%);
+  background-size: 200% 100%;
+  background-position: 100% 0;
+  padding: 0 3px;
+  border-radius: 2px;
+  color: inherit;
+  font-weight: 500;
+  animation: markerDraw 300ms ease-out forwards;
+}
+
+@keyframes markerDraw {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+.doubtster-answer-wrapper.highlights-disabled .doubtster-inline-mark {
+  background: transparent !important;
+  animation: none !important;
+  font-weight: inherit !important;
+  padding: 0 !important;
+}
+
+/* ==========================================================================
+   Accessibility & Preferences
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .doubtster-sticky-note {
+    transform: none !important;
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+  }
+  .doubtster-sticky-note:hover {
+    transform: none !important;
+  }
+  .doubtster-inline-mark {
+    animation: none !important;
+    background-position: 0 0 !important;
+  }
+}
+
+/* Dark Mode Adaptation */
+@media (prefers-color-scheme: dark) {
+  .doubtster-step-card {
+    background: #18181B;
+    border-color: #27272A;
+    color: #F4F4F5;
+  }
+  .doubtster-step-title {
+    color: #F4F4F5;
+  }
+  .doubtster-step-body {
+    color: #D4D4D8;
+  }
+  .doubtster-step-card .katex-display,
+  .doubtster-step-card .doubtster-math-box {
+    background: #27272A;
+    border-color: #3F3F46;
+  }
+  .doubtster-quick-answer {
+    background: #1E293B;
+    color: #F8FAFC;
+    border-left-color: #60A5FA;
+  }
+}
+
+[data-theme="dark"] .doubtster-step-card {
+  background: #18181B;
+  border-color: #27272A;
+  color: #F4F4F5;
+}
+[data-theme="dark"] .doubtster-step-title {
+  color: #F4F4F5;
+}
+[data-theme="dark"] .doubtster-step-body {
+  color: #D4D4D8;
+}
+[data-theme="dark"] .doubtster-step-card .katex-display,
+[data-theme="dark"] .doubtster-step-card .doubtster-math-box {
+  background: #27272A;
+  border-color: #3F3F46;
+}
+[data-theme="dark"] .doubtster-quick-answer {
+  background: #1E293B;
+  color: #F8FAFC;
+  border-left-color: #60A5FA;
+}
+
+/* ==========================================================================
+   Visual Cards: Graphs, Diagrams, Figures, Images
+   ========================================================================== */
+
+.doubtster-visual-card {
+  margin: 22px 0;
+  width: 100%;
+  border-radius: 14px;
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: doubtster-visual-in 340ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes doubtster-visual-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.doubtster-visual-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doubtster-visual-tag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.doubtster-visual-handwritten-label {
+  font-family: var(--font-handwriting, "Caveat", "Kalam", "Segoe Print", cursive);
+  font-size: 22px;
+  font-weight: 700;
+  color: #1E293B;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.doubtster-visual-title-badge {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.doubtster-visual-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doubtster-visual-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  background: #FFFFFF;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 160ms ease;
+  user-select: none;
+}
+
+.doubtster-visual-btn:hover:not(:disabled) {
+  background: #F8FAFC;
+  border-color: #94A3B8;
+  color: #0F172A;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.07);
+}
+
+.doubtster-visual-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.doubtster-visual-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.doubtster-visual-body {
+  padding: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Recharts styling */
+.doubtster-chart-container {
+  width: 100%;
+  height: 320px;
+  position: relative;
+}
+
+.doubtster-chart-fallback-table-wrapper {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 8px;
+}
+
+.doubtster-chart-fallback-notice {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748B;
+  margin-bottom: 8px;
+}
+
+.doubtster-chart-fallback-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.doubtster-chart-fallback-table th,
+.doubtster-chart-fallback-table td {
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  text-align: left;
+}
+
+/* Diagrams */
+.doubtster-diagram-viewport {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 0;
+  cursor: zoom-in;
+  overflow-x: auto;
+  transition: transform 200ms ease;
+}
+
+.doubtster-diagram-viewport.zoomed {
+  cursor: zoom-out;
+  transform: scale(1.2);
+  transform-origin: center top;
+}
+
+.doubtster-diagram-viewport svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.doubtster-diagram-fallback-container {
+  padding: 10px;
+}
+
+.doubtster-diagram-source-details {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.doubtster-diagram-source-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748B;
+  cursor: pointer;
+}
+
+.doubtster-diagram-source-code {
+  margin-top: 8px;
+  font-size: 12px;
+  background: #F1F5F9;
+  padding: 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+/* Figures */
+.doubtster-figure-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.doubtster-figure-svg {
+  width: 100%;
+  max-width: 650px;
+  height: auto;
+  overflow: visible;
+}
+
+.doubtster-figure-shapes-layer {
+  animation: doubtster-figure-fade-in 600ms ease-out forwards;
+}
+
+@keyframes doubtster-figure-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.doubtster-figure-leader-line {
+  stroke: #64748B;
+  stroke-width: 1.5;
+  stroke-dasharray: 4;
+  animation: doubtster-line-draw 700ms ease-out forwards;
+}
+
+@keyframes doubtster-line-draw {
+  from { stroke-dashoffset: 400; }
+  to { stroke-dashoffset: 0; }
+}
+
+.doubtster-figure-pointer-dot {
+  fill: #3B82F6;
+  stroke: #FFFFFF;
+  stroke-width: 1.5;
+}
+
+.doubtster-figure-label-badge {
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.12));
+}
+
+.doubtster-figure-label-bg {
+  fill: rgba(255, 255, 255, 0.95);
+  stroke: #CBD5E1;
+  stroke-width: 1;
+}
+
+.doubtster-figure-label-text {
+  fill: #0F172A;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Images */
+.doubtster-image-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.doubtster-image-frame {
+  width: 100%;
+  max-height: 380px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.02);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.doubtster-image-element {
+  max-width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.doubtster-image-footer {
+  margin-top: 10px;
+  text-align: center;
+  width: 100%;
+}
+
+.doubtster-image-caption {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.doubtster-image-credit {
+  font-size: 12px;
+  color: #64748B;
+}
+
+.doubtster-image-link {
+  color: #2563EB;
+  text-decoration: underline;
+}
+
+/* Skeleton Loading */
+.doubtster-visual-skeleton {
+  border-style: dashed;
+}
+
+.doubtster-skeleton-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94A3B8;
+  background: #F1F5F9;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.doubtster-skeleton-placeholder {
+  min-height: 180px;
+  width: 100%;
+  border-radius: 8px;
+  background: #F8FAFC;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.doubtster-skeleton-shimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(241, 245, 249, 0) 0%,
+    rgba(226, 232, 240, 0.7) 50%,
+    rgba(241, 245, 249, 0) 100%
+  );
+  animation: doubtster-shimmer 1.4s infinite;
+}
+
+@keyframes doubtster-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.doubtster-skeleton-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.doubtster-skeleton-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #E2E8F0;
+}
+
+.doubtster-skeleton-line {
+  height: 10px;
+  background: #E2E8F0;
+  border-radius: 5px;
+}
+
+.doubtster-skeleton-line.short { width: 90px; }
+.doubtster-skeleton-line.long { width: 140px; }
+
+/* Fullscreen Modal */
+.doubtster-fullscreen-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.doubtster-fullscreen-modal-dialog {
+  background: #FFFFFF;
+  border-radius: 16px;
+  max-width: 95vw;
+  max-height: 92vh;
+  width: 900px;
+  overflow: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.doubtster-fullscreen-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.doubtster-fullscreen-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.doubtster-fullscreen-close-btn {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 8px;
+  color: #64748B;
+  transition: all 150ms ease;
+}
+
+.doubtster-fullscreen-close-btn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+.doubtster-fullscreen-modal-body {
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Dark Mode Visual Overrides */
+@media (prefers-color-scheme: dark) {
+  .doubtster-visual-card {
+    background: #18181B;
+    border-color: #27272A;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+  }
+  .doubtster-visual-header {
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom-color: #27272A;
+  }
+  .doubtster-visual-handwritten-label {
+    color: #F4F4F5;
+  }
+  .doubtster-visual-title-badge {
+    color: #A1A1AA;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .doubtster-visual-btn {
+    background: #27272A;
+    border-color: #3F3F46;
+    color: #E4E4E7;
+  }
+  .doubtster-visual-btn:hover:not(:disabled) {
+    background: #3F3F46;
+    border-color: #71717A;
+    color: #FFFFFF;
+  }
+  .doubtster-chart-fallback-table-wrapper {
+    background: #27272A;
+  }
+  .doubtster-chart-fallback-notice {
+    color: #A1A1AA;
+  }
+  .doubtster-chart-fallback-table th,
+  .doubtster-chart-fallback-table td {
+    border-color: #3F3F46;
+    color: #D4D4D8;
+  }
+  .doubtster-figure-label-bg {
+    fill: #27272A;
+    stroke: #3F3F46;
+  }
+  .doubtster-figure-label-text {
+    fill: #F4F4F5;
+  }
+  .doubtster-figure-pointer-dot {
+    stroke: #18181B;
+  }
+  .doubtster-image-caption {
+    color: #E4E4E7;
+  }
+  .doubtster-image-credit {
+    color: #A1A1AA;
+  }
+  .doubtster-image-link {
+    color: #60A5FA;
+  }
+  .doubtster-fullscreen-modal-dialog {
+    background: #18181B;
+    border: 1px solid #27272A;
+  }
+  .doubtster-fullscreen-modal-header {
+    border-bottom-color: #27272A;
+  }
+  .doubtster-fullscreen-close-btn:hover {
+    background: #27272A;
+    color: #FFFFFF;
+  }
+  .doubtster-skeleton-placeholder {
+    background: #27272A;
+  }
+  .doubtster-skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(39, 39, 42, 0) 0%,
+      rgba(63, 63, 70, 0.6) 50%,
+      rgba(39, 39, 42, 0) 100%
+    );
+  }
+  .doubtster-skeleton-icon,
+  .doubtster-skeleton-line {
+    background: #3F3F46;
+  }
+}
+
+[data-theme="dark"] .doubtster-visual-card {
+  background: #18181B;
+  border-color: #27272A;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+}
+[data-theme="dark"] .doubtster-visual-header {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: #27272A;
+}
+[data-theme="dark"] .doubtster-visual-handwritten-label {
+  color: #F4F4F5;
+}
+[data-theme="dark"] .doubtster-visual-title-badge {
+  color: #A1A1AA;
+  background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="dark"] .doubtster-visual-btn {
+  background: #27272A;
+  border-color: #3F3F46;
+  color: #E4E4E7;
+}
+[data-theme="dark"] .doubtster-visual-btn:hover:not(:disabled) {
+  background: #3F3F46;
+  border-color: #71717A;
+  color: #FFFFFF;
+}
+[data-theme="dark"] .doubtster-figure-label-bg {
+  fill: #27272A;
+  stroke: #3F3F46;
+}
+[data-theme="dark"] .doubtster-figure-label-text {
+  fill: #F4F4F5;
+}
+[data-theme="dark"] .doubtster-figure-pointer-dot {
+  stroke: #18181B;
+}
+[data-theme="dark"] .doubtster-image-caption {
+  color: #E4E4E7;
+}
+[data-theme="dark"] .doubtster-image-credit {
+  color: #A1A1AA;
+}
+[data-theme="dark"] .doubtster-image-link {
+  color: #60A5FA;
+}
+[data-theme="dark"] .doubtster-fullscreen-modal-dialog {
+  background: #18181B;
+  border: 1px solid #27272A;
+}
+[data-theme="dark"] .doubtster-fullscreen-modal-header {
+  border-bottom-color: #27272A;
+}
+[data-theme="dark"] .doubtster-fullscreen-close-btn:hover {
+  background: #27272A;
+  color: #FFFFFF;
+}
+
+/* Mafs Function Plot Styling for Doubtster */
+.doubtster-mafs-wrapper .MafsView {
+  --mafs-bg: #FFFFFF !important;
+  --mafs-fg: #1D1D22 !important;
+  --mafs-line-color: #E2E2EA !important;
+  --grid-line-subdivision-color: #F4F4F6 !important;
+  --mafs-origin-color: #71717A !important;
+  background-color: #FFFFFF !important;
+}
+
+[data-theme="dark"] .doubtster-mafs-wrapper .MafsView,
+.dark .doubtster-mafs-wrapper .MafsView {
+  --mafs-bg: #18181B !important;
+  --mafs-fg: #F4F4F5 !important;
+  --mafs-line-color: #2E2E38 !important;
+  --grid-line-subdivision-color: #22222A !important;
+  --mafs-origin-color: #A1A1AA !important;
+  background-color: #18181B !important;
+}
+
+/* Mermaid Diagram Styling for Doubtster */
+.doubtster-mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+  min-height: 120px;
+}
+.doubtster-mermaid-container .nodeLabel,
+.doubtster-mermaid-container text {
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  fill: #0B0B0F !important;
+  color: #0B0B0F !important;
+}
+.doubtster-mermaid-container .node rect,
+.doubtster-mermaid-container .node circle,
+.doubtster-mermaid-container .node polygon {
+  fill: #EEF4FF !important;
+  stroke: #2F7BFF !important;
+  stroke-width: 1.5px !important;
+}
+.doubtster-mermaid-container .flowchart-link {
+  stroke: #2F7BFF !important;
+  stroke-width: 1.5px !important;
+}
+.doubtster-mermaid-container .marker {
+  fill: #2F7BFF !important;
+  stroke: #2F7BFF !important;
+}
+
+[data-theme="dark"] .doubtster-mermaid-container .nodeLabel,
+[data-theme="dark"] .doubtster-mermaid-container text,
+.dark .doubtster-mermaid-container .nodeLabel,
+.dark .doubtster-mermaid-container text {
+  fill: #F4F4F5 !important;
+  color: #F4F4F5 !important;
+}
+[data-theme="dark"] .doubtster-mermaid-container .node rect,
+[data-theme="dark"] .doubtster-mermaid-container .node circle,
+[data-theme="dark"] .doubtster-mermaid-container .node polygon,
+.dark .doubtster-mermaid-container .node rect,
+.dark .doubtster-mermaid-container .node circle,
+.dark .doubtster-mermaid-container .node polygon {
+  fill: #1E2333 !important;
+  stroke: #5A94FF !important;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .doubtster-visual-card {
+    animation: none !important;
+  }
+  .doubtster-figure-shapes-layer {
+    animation: none !important;
+  }
+  .doubtster-figure-leader-line {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .doubtster-skeleton-shimmer {
+    animation: none !important;
+  }
+}
+
