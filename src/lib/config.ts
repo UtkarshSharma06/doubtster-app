@@ -30,9 +30,12 @@ export function getAppOrigin(request?: Request): string {
 
 export const AUTH = {
   GOOGLE_URL: "/api/auth/google", // server route that starts Google OAuth, then redirects back
-  SIGNUP_ENDPOINT: "/api/auth/signup", // POST {email,password,name,ageOk,q?} -> 200, or 4xx {error}
-  LOGIN_ENDPOINT: "/api/auth/login", // POST {email,password,q?} -> 200, or 4xx {error}
+  SIGNUP_ENDPOINT: "/api/auth/signup", // POST {email,password,name,ageOk,isStudent,q?} -> 200, or 4xx {error}
+  LOGIN_ENDPOINT: "/api/auth/login", // POST {email,password,isStudent,q?} -> 200, or 4xx {error}
   RESET_ENDPOINT: "/api/auth/reset", // POST {email}
+  CHECK_COLLEGE_ENDPOINT: "/api/auth/check-college", // POST {email} -> {approved, college, message}
+  SEND_OTP_ENDPOINT: "/api/auth/send-otp", // POST {email, type, isStudent}
+  VERIFY_OTP_ENDPOINT: "/api/auth/verify-otp", // POST {email, token, type, isStudent, name}
   AFTER: "/app", // where to go after success
   DEMO,
 } as const;

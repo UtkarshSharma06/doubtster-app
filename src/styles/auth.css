@@ -144,3 +144,34 @@
 .pg-auth footer{padding-top:30px}
 @media(max-width:900px){.pg-auth .auth .fw,.pg-auth .auth .nm,.pg-auth .auth .fold,.pg-auth .auth .kao{display:none}.pg-auth .in2{padding:22px 20px 20px}}
 @media(prefers-reduced-motion:reduce){.pg-auth .spin{animation:none}}
+
+/* Student toggle & domain verification */
+.pg-auth .student-seg{display:flex;background:#ECECF0;border-radius:99px;padding:3px;margin:16px 0 16px;border:1px solid #D5D5DD;position:relative}
+.pg-auth .student-btn{flex:1;height:38px;border-radius:99px;font-size:13.5px;font-weight:500;color:var(--mute);display:flex;align-items:center;justify-content:center;gap:6px;transition:all .18s;background:transparent;border:0;cursor:pointer}
+.pg-auth .student-btn:hover{color:var(--ink)}
+.pg-auth .student-btn.active{background:#fff;color:#185ADB;font-weight:600;box-shadow:0 2px 8px -2px rgba(0,0,0,.14),0 1px 0 #fff inset}
+.pg-auth .student-btn .badge{font-size:10.5px;background:#E5EFFF;color:#185ADB;padding:1px 6px;border-radius:99px;font-weight:600}
+.pg-auth .college-banner{border-radius:11px;padding:12px 14px;font-size:13px;margin:10px 0 14px;border:1px solid;line-height:1.45;animation:fadeUp .22s ease-out}
+.pg-auth .college-banner.good{background:#E9F9EE;border-color:#A0E2B2;color:#115724}
+.pg-auth .college-banner.bad{background:#FEEFEF;border-color:#F7B6B2;color:#8F1810}
+.pg-auth .college-banner-title{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13.5px;margin-bottom:3px}
+.pg-auth .college-switch-btn{display:inline-block;margin-top:6px;font-size:12px;color:#185ADB;background:#fff;border:1px solid rgba(24,90,219,.3);padding:3px 9px;border-radius:6px;font-weight:500;cursor:pointer}
+.pg-auth .college-switch-btn:hover{background:#F1F6FF}
+
+/* OTP Verification UI */
+.pg-auth .otp-hero{text-align:center;margin:6px 0 16px}
+.pg-auth .otp-icon{width:50px;height:50px;border-radius:50%;background:#EBF3FF;border:2px solid #CFE2FF;color:var(--blue);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:20px}
+.pg-auth .otp-icon svg{width:24px;height:24px}
+.pg-auth .otp-lead{font-size:14px;color:var(--mute);margin-top:4px}
+.pg-auth .otp-email{font-weight:600;color:var(--ink);word-break:break-all}
+.pg-auth .otp-input-wrap{margin:18px 0 14px}
+.pg-auth .otp-code-input{width:100%;height:56px;border-radius:12px;border:2px solid #C9CFDC;font-size:26px;letter-spacing:.36em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;background:#FAFBFD;color:var(--ink);transition:all .18s}
+.pg-auth .otp-code-input:focus{outline:0;border-color:var(--blue);background:#fff;box-shadow:0 0 0 4px rgba(47,123,255,.16)}
+.pg-auth .otp-actions{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:13px;color:var(--mute)}
+.pg-auth .otp-resend{color:var(--blue);font-weight:500;cursor:pointer;background:none;border:0;padding:0;font-size:13px}
+.pg-auth .otp-resend:disabled{color:var(--mute);opacity:.6;cursor:default}
+.pg-auth .alt-auth{margin-top:14px;text-align:center}
+.pg-auth .alt-auth button{color:var(--blue);font-size:13.5px;font-weight:500;cursor:pointer;background:none;border:0}
+.pg-auth .alt-auth button:hover{text-decoration:underline}
+@keyframes fadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+

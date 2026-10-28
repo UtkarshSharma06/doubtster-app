@@ -43,21 +43,106 @@ export function AuthPage({ mode }: { mode: Mode }) {
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [agree, setAgree] = useState(false);
+  const [isStudent, setIsStudent] = useState(false);
+  const [collegeStatus, setCollegeStatus] = useState<{
+    checked: boolean;
+    approved: boolean;
+    domain: string;
+    message: string;
+    college?: { name: string; credits: number };
+  } | null>(null);
+  const [collegeChecking, setCollegeChecking] = useState(false);
+
   const [errs, setErrs] = useState<{ em?: string; pw?: string; agree?: string }>({});
   const [note, setNote] = useState<Note>(null);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"main" | "reset">("main");
+  const [view, setView] = useState<"main" | "reset" | "otp">("main");
+
+  // OTP state
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const [otpType, setOtpType] = useState<"signup" | "email">("signup");
+  const [otpNote, setOtpNote] = useState<Note>(null);
+  const [otpBusy, setOtpBusy] = useState(false);
+
   const [rem, setRem] = useState("");
   const [remErr, setRemErr] = useState("");
   const [rnote, setRnote] = useState<Note>(null);
+
   const emRef = useRef<HTMLInputElement>(null);
   const pwRef = useRef<HTMLInputElement>(null);
   const agreeRef = useRef<HTMLInputElement>(null);
   const remRef = useRef<HTMLInputElement>(null);
+  const otpRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setQ((new URLSearchParams(window.location.search).get("q") ?? "").trim().slice(0, 300));
   }, []);
+
+  // Timer countdown for resending OTP
+  useEffect(() => {
+    if (otpCountdown <= 0) return;
+    const t = setInterval(() => {
+      setOtpCountdown((c) => (c > 0 ? c - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [otpCountdown]);
+
+  // Live college domain verification when isStudent is toggled or email changes
+  useEffect(() => {
+    if (!isStudent) {
+      setCollegeStatus(null);
+      return;
+    }
+
+    const trimmed = email.trim().toLowerCase();
+    const domainMatch = /^[^\s@]+@([^\s@]+\.[^\s@]{2,})$/.exec(trimmed);
+    if (!domainMatch) {
+      setCollegeStatus(null);
+      return;
+    }
+
+    const dom = domainMatch[1];
+    let cancelled = false;
+    setCollegeChecking(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(AUTH.CHECK_COLLEGE_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmed }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setCollegeChecking(false);
+          setCollegeStatus({
+            checked: true,
+            approved: !!data.approved,
+            domain: dom,
+            message: data.message || (data.approved ? "Approved college domain." : "Doubtster is not in your college yet"),
+            college: data.college,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setCollegeChecking(false);
+          setCollegeStatus({
+            checked: true,
+            approved: false,
+            domain: dom,
+            message: "Doubtster is not in your college yet",
+          });
+        }
+      }
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [email, isStudent]);
 
   const strength = (() => {
     if (!pw) return 0;
@@ -73,7 +158,10 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
   const google = () => {
     if (AUTH.DEMO) {
-      setNote({ text: `Demo mode: Google sign in would go to ${AUTH.GOOGLE_URL} now. Connect your server route and set NEXT_PUBLIC_DEMO=false.`, kind: "info" });
+      setNote({
+        text: `Demo mode: Google sign in would go to ${AUTH.GOOGLE_URL} now. Set NEXT_PUBLIC_DEMO=false in production.`,
+        kind: "info",
+      });
       return;
     }
     window.location.href = AUTH.GOOGLE_URL + (q ? "?q=" + encodeURIComponent(q) : "");
@@ -81,9 +169,12 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
   const validate = () => {
     const e: typeof errs = {};
-    if (!emailRe.test(email.trim())) e.em = "Enter a valid email address.";
-    if (mode === "signup") { if (pw.length < 8) e.pw = "Password is too short."; }
-    else if (!pw) e.pw = "Enter your password.";
+    if (!emailRe.test(email.trim())) e.em = isStudent ? "Enter a valid university email address." : "Enter a valid email address.";
+    if (mode === "signup") {
+      if (pw.length < 8) e.pw = "Password is too short (min 8 characters).";
+    } else if (!pw) {
+      e.pw = "Enter your password.";
+    }
     if (mode === "signup" && !agree) e.agree = "Please confirm to continue.";
     setErrs(e);
     if (e.em) emRef.current?.focus();
@@ -96,40 +187,219 @@ export function AuthPage({ mode }: { mode: Mode }) {
     ev.preventDefault();
     setNote(null);
     if (!validate()) return;
+
+    if (isStudent && collegeStatus && !collegeStatus.approved) {
+      setNote({
+        text: "Doubtster is not in your college yet. Please use a regular account or switch off the student option.",
+        kind: "bad",
+      });
+      return;
+    }
+
     setBusy(true);
-    const body: Record<string, unknown> = { email: email.trim(), password: pw };
-    if (mode === "signup") { body.name = name.trim(); body.ageOk = true; }
+    const body: Record<string, unknown> = {
+      email: email.trim(),
+      password: pw,
+      isStudent,
+    };
+    if (mode === "signup") {
+      body.name = name.trim();
+      body.ageOk = true;
+    }
     if (q) body.q = q;
+
     if (AUTH.DEMO) {
       setTimeout(() => {
         setBusy(false);
-        setNote({ text: `Demo mode: this form is ready to send to ${c.endpoint}. Connect your backend and set NEXT_PUBLIC_DEMO=false. Nothing was saved.`, kind: "info" });
+        setNote({
+          text: `Demo mode: this form would send to ${c.endpoint}. Set NEXT_PUBLIC_DEMO=false in .env.local.`,
+          kind: "info",
+        });
       }, 700);
       return;
     }
+
     try {
-      const r = await fetch(c.endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify(body) });
+      const r = await fetch(c.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
       const j = await r.json().catch(() => ({}));
       setBusy(false);
-      if (r.ok) window.location.href = AUTH.AFTER;
-      else setNote({ text: j.error || "Something went wrong. Please check your details and try again.", kind: "bad" });
+
+      if (r.ok) {
+        if (j.requireOtp) {
+          // Supabase requires email verification via 6-digit OTP
+          setOtpEmail(email.trim());
+          setOtpType(mode === "signup" ? "signup" : "email");
+          setOtpCountdown(45);
+          setOtpNote({
+            text: j.message || `We sent a 6-digit verification code to ${email.trim()}.`,
+            kind: "good",
+          });
+          setView("otp");
+          setTimeout(() => otpRef.current?.focus(), 100);
+        } else {
+          window.location.href = AUTH.AFTER;
+        }
+      } else {
+        if (j.requireOtp) {
+          // Unconfirmed email on login -> go to OTP
+          setOtpEmail(email.trim());
+          setOtpType("email");
+          setOtpCountdown(45);
+          setOtpNote({
+            text: j.error || "Please verify your email address.",
+            kind: "info",
+          });
+          setView("otp");
+          setTimeout(() => otpRef.current?.focus(), 100);
+        } else {
+          setNote({
+            text: j.error || "Something went wrong. Please check your details and try again.",
+            kind: "bad",
+          });
+        }
+      }
     } catch {
       setBusy(false);
-      setNote({ text: "Could not reach the server. Check your connection and try again.", kind: "bad" });
+      setNote({
+        text: "Could not reach the server. Check your connection and try again.",
+        kind: "bad",
+      });
+    }
+  };
+
+  // Passwordless Email OTP Login
+  const startEmailOtpLogin = async () => {
+    const clean = email.trim();
+    if (!emailRe.test(clean)) {
+      setErrs({ em: "Enter your email address first to get a code." });
+      emRef.current?.focus();
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await fetch(AUTH.SEND_OTP_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: clean, type: "login", isStudent }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setBusy(false);
+      if (r.ok) {
+        setOtpEmail(clean);
+        setOtpType("email");
+        setOtpCountdown(45);
+        setOtpNote({ text: j.message || `6-digit verification code sent to ${clean}.`, kind: "good" });
+        setView("otp");
+        setTimeout(() => otpRef.current?.focus(), 100);
+      } else {
+        setNote({ text: j.error || "Could not send verification code.", kind: "bad" });
+      }
+    } catch {
+      setBusy(false);
+      setNote({ text: "Network error sending verification code.", kind: "bad" });
+    }
+  };
+
+  // Submit 6-digit OTP verification
+  const submitOtp = async (ev: FormEvent) => {
+    ev.preventDefault();
+    const cleanCode = otpCode.trim().replace(/\D/g, "");
+    if (cleanCode.length !== 6) {
+      setOtpNote({ text: "Please enter the complete 6-digit code from your email.", kind: "bad" });
+      otpRef.current?.focus();
+      return;
+    }
+
+    setOtpBusy(true);
+    setOtpNote(null);
+    try {
+      const r = await fetch(AUTH.VERIFY_OTP_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: otpEmail,
+          token: cleanCode,
+          type: otpType,
+          isStudent,
+          name: name.trim(),
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setOtpBusy(false);
+
+      if (r.ok) {
+        setOtpNote({ text: "Code verified! Redirecting to Doubtster...", kind: "good" });
+        setTimeout(() => {
+          window.location.href = AUTH.AFTER;
+        }, 600);
+      } else {
+        setOtpNote({
+          text: j.error || "Invalid or expired verification code. Try again or resend.",
+          kind: "bad",
+        });
+      }
+    } catch {
+      setOtpBusy(false);
+      setOtpNote({ text: "Could not reach the server. Check your connection.", kind: "bad" });
+    }
+  };
+
+  // Resend OTP code
+  const resendOtp = async () => {
+    if (otpCountdown > 0 || !otpEmail) return;
+    setOtpBusy(true);
+    try {
+      const r = await fetch(AUTH.SEND_OTP_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: otpEmail, type: otpType, isStudent }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setOtpBusy(false);
+      if (r.ok) {
+        setOtpCountdown(45);
+        setOtpNote({ text: `New 6-digit verification code sent to ${otpEmail}.`, kind: "good" });
+      } else {
+        setOtpNote({ text: j.error || "Failed to resend verification code.", kind: "bad" });
+      }
+    } catch {
+      setOtpBusy(false);
+      setOtpNote({ text: "Failed to resend. Please check your connection.", kind: "bad" });
     }
   };
 
   const submitReset = async (ev: FormEvent) => {
     ev.preventDefault();
     const e = rem.trim();
-    if (!emailRe.test(e)) { setRemErr("Enter a valid email address."); remRef.current?.focus(); return; }
-    setRemErr("");
-    if (AUTH.DEMO) {
-      setRnote({ text: `Demo mode: this would send a reset link to ${e} via ${AUTH.RESET_ENDPOINT}. Nothing was sent.`, kind: "info" });
+    if (!emailRe.test(e)) {
+      setRemErr("Enter a valid email address.");
+      remRef.current?.focus();
       return;
     }
-    const ok = () => setRnote({ text: `If an account exists for ${e}, a reset link is on its way. Check your spam folder too.`, kind: "good" });
-    fetch(AUTH.RESET_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e }) }).then(ok, ok);
+    setRemErr("");
+    if (AUTH.DEMO) {
+      setRnote({
+        text: `Demo mode: this would send a reset link to ${e} via ${AUTH.RESET_ENDPOINT}. Nothing was sent.`,
+        kind: "info",
+      });
+      return;
+    }
+    const ok = () =>
+      setRnote({
+        text: `If an account exists for ${e}, a reset link is on its way. Check your spam folder too.`,
+        kind: "good",
+      });
+    fetch(AUTH.RESET_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: e }),
+    }).then(ok, ok);
   };
 
   const carry = q ? `?q=${encodeURIComponent(q)}` : "";
@@ -167,16 +437,50 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
         <div className="card">
           <div className="win">
-            <div className="tb"><i /><i /><i /><em>{c.file}</em></div>
+            <div className="tb"><i /><i /><i /><em>{view === "otp" ? "verify-email.app" : c.file}</em></div>
             <div className="bd">
               <div className="in2">
-                <div className="mk">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/brand/doubtster-icon.svg" alt="Doubtster" /></div>
+                <div className="mk">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/brand/doubtster-icon.svg" alt="Doubtster" />
+                </div>
 
+                {/* VIEW 1: Main Login / Signup Form */}
                 <div className="view" hidden={view !== "main"}>
                   <h1>{c.h1}</h1>
                   <p className="lead">{c.lead}</p>
-                  {q && <div className="ask"><span aria-hidden="true">?</span><span><b>Your question:</b> <span>{q}</span></span></div>}
+                  {q && (
+                    <div className="ask">
+                      <span aria-hidden="true">?</span>
+                      <span><b>Your question:</b> <span>{q}</span></span>
+                    </div>
+                  )}
+
+                  {/* Student toggle selector */}
+                  <div className="student-seg" role="radiogroup" aria-label="Account type">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={!isStudent}
+                      className={`student-btn ${!isStudent ? "active" : ""}`}
+                      onClick={() => setIsStudent(false)}
+                    >
+                      <span>Regular Account</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={isStudent}
+                      className={`student-btn ${isStudent ? "active" : ""}`}
+                      onClick={() => setIsStudent(true)}
+                    >
+                      <span>🎓 Student</span>
+                      <span className="badge">College Perks</span>
+                    </button>
+                  </div>
+
                   {note && <div className={`msg ${note.kind}`} role="alert">{note.text}</div>}
+
                   <button className="gbtn" type="button" onClick={google}>
                     <svg viewBox="0 0 48 48" aria-hidden="true">
                       <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
@@ -186,79 +490,321 @@ export function AuthPage({ mode }: { mode: Mode }) {
                     </svg>
                     <span>{c.google}</span>
                   </button>
-                  <div className="or"><span>or use your email</span></div>
+
+                  <div className="or"><span>or use your {isStudent ? "university email" : "email"}</span></div>
 
                   <form className="f" onSubmit={submit} noValidate>
                     {mode === "signup" && (
                       <div className="fld">
-                        <label htmlFor="nm"><span>Name <span style={{ color: "var(--mute)", fontWeight: 400 }}>(optional)</span></span></label>
-                        <div className="ip"><input id="nm" type="text" autoComplete="given-name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></div>
+                        <label htmlFor="nm">
+                          <span>Name <span style={{ color: "var(--mute)", fontWeight: 400 }}>(optional)</span></span>
+                        </label>
+                        <div className="ip">
+                          <input
+                            id="nm"
+                            type="text"
+                            autoComplete="given-name"
+                            maxLength={60}
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                          />
+                        </div>
                       </div>
                     )}
+
                     <div className="fld">
-                      <label htmlFor="em">Email</label>
+                      <label htmlFor="em">
+                        <span>{isStudent ? "University Email" : "Email"}</span>
+                        {isStudent && <span style={{ fontSize: 11.5, color: "var(--blue)", fontWeight: 500 }}>Approved campus domains only</span>}
+                      </label>
                       <div className="ip">
-                        <input id="em" ref={emRef} type="email" autoComplete="email" inputMode="email" required aria-describedby="emErr" aria-invalid={errs.em ? "true" : "false"}
-                          value={email} onChange={(e) => { setEmail(e.target.value); if (errs.em) setErrs((x) => ({ ...x, em: "" })); }} />
+                        <input
+                          id="em"
+                          ref={emRef}
+                          type="email"
+                          autoComplete="email"
+                          inputMode="email"
+                          required
+                          placeholder={isStudent ? "you@university.edu" : "name@example.com"}
+                          aria-describedby="emErr"
+                          aria-invalid={errs.em ? "true" : "false"}
+                          value={email}
+                          onChange={(e) => {
+                            setEmail(e.target.value);
+                            if (errs.em) setErrs((x) => ({ ...x, em: "" }));
+                          }}
+                        />
                       </div>
                       <p className="err" id="emErr" role="alert">{errs.em}</p>
+
+                      {/* College domain verification feedback */}
+                      {isStudent && email.includes("@") && (
+                        <>
+                          {collegeChecking && (
+                            <p className="mt" style={{ color: "var(--blue)" }}>Checking university partner status...</p>
+                          )}
+                          {!collegeChecking && collegeStatus && (
+                            <>
+                              {collegeStatus.approved ? (
+                                <div className="college-banner good" role="status">
+                                  <div className="college-banner-title">
+                                    <span>🎓</span> Matched {collegeStatus.college?.name || "Partner University"}!
+                                  </div>
+                                  <div>
+                                    +{collegeStatus.college?.credits || 10} free AI Doubtster credits and student campus privileges included.
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="college-banner bad" role="alert">
+                                  <div className="college-banner-title">
+                                    <span>⚠️</span> Doubtster is not in your college yet
+                                  </div>
+                                  <div>
+                                    Your campus domain (<strong>@{collegeStatus.domain}</strong>) has not been activated on Doubtster yet.
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="college-switch-btn"
+                                    onClick={() => {
+                                      setIsStudent(false);
+                                      setCollegeStatus(null);
+                                    }}
+                                  >
+                                    Switch to Regular Account
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </>
+                      )}
                     </div>
+
                     <div className="fld">
                       <label htmlFor="pw">
                         <span>Password</span>
                         {mode === "login" && (
-                          <a href="#" onClick={(e) => { e.preventDefault(); setRem(email); setView("reset"); setTimeout(() => remRef.current?.focus(), 0); }}>Forgot password?</a>
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setRem(email);
+                              setView("reset");
+                              setTimeout(() => remRef.current?.focus(), 0);
+                            }}
+                          >
+                            Forgot password?
+                          </a>
                         )}
                       </label>
                       <div className="ip">
-                        <input id="pw" ref={pwRef} type={showPw ? "text" : "password"} autoComplete={mode === "signup" ? "new-password" : "current-password"} required aria-describedby="pwErr"
-                          aria-invalid={errs.pw ? "true" : "false"} style={{ paddingRight: 64 }}
-                          value={pw} onChange={(e) => { setPw(e.target.value); if (errs.pw) setErrs((x) => ({ ...x, pw: "" })); }} />
-                        <button className="eye" type="button" aria-pressed={showPw} aria-label="Show or hide password" onClick={() => setShowPw((s) => !s)}>{showPw ? "Hide" : "Show"}</button>
+                        <input
+                          id="pw"
+                          ref={pwRef}
+                          type={showPw ? "text" : "password"}
+                          autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                          required
+                          aria-describedby="pwErr"
+                          aria-invalid={errs.pw ? "true" : "false"}
+                          style={{ paddingRight: 64 }}
+                          value={pw}
+                          onChange={(e) => {
+                            setPw(e.target.value);
+                            if (errs.pw) setErrs((x) => ({ ...x, pw: "" }));
+                          }}
+                        />
+                        <button
+                          className="eye"
+                          type="button"
+                          aria-pressed={showPw}
+                          aria-label="Show or hide password"
+                          onClick={() => setShowPw((s) => !s)}
+                        >
+                          {showPw ? "Hide" : "Show"}
+                        </button>
                       </div>
+
                       {mode === "signup" && (
                         <>
                           <div className="meter" aria-hidden="true">
-                            {[0, 1, 2, 3].map((k) => <i key={k} style={{ background: k < strength ? METER[strength - 1] : undefined }} />)}
+                            {[0, 1, 2, 3].map((k) => (
+                              <i
+                                key={k}
+                                style={{
+                                  background: k < strength ? METER[strength - 1] : undefined,
+                                }}
+                              />
+                            ))}
                           </div>
-                          <p className="mt">{pw ? LAB[strength] + (pw.length < 8 ? " (use at least 8 characters)" : "") : "Use at least 8 characters."}</p>
+                          <p className="mt">
+                            {pw ? LAB[strength] + (pw.length < 8 ? " (use at least 8 characters)" : "") : "Use at least 8 characters."}
+                          </p>
                         </>
                       )}
                       <p className="err" id="pwErr" role="alert">{errs.pw}</p>
                     </div>
+
                     {mode === "signup" && (
                       <div>
                         <label className="chk">
-                          <input id="agree" ref={agreeRef} type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} aria-describedby="agreeErr" />
-                          <span>I am at least 16 (or have a parent or guardian&apos;s permission) and I agree to the <a href={site("/terms")}>Terms</a> and <a href={site("/privacy")}>Privacy Policy</a>.</span>
+                          <input
+                            id="agree"
+                            ref={agreeRef}
+                            type="checkbox"
+                            checked={agree}
+                            onChange={(e) => setAgree(e.target.checked)}
+                            aria-describedby="agreeErr"
+                          />
+                          <span>
+                            I am at least 16 (or have a parent or guardian&apos;s permission) and I agree to the{" "}
+                            <a href={site("/terms")}>Terms</a> and <a href={site("/privacy")}>Privacy Policy</a>.
+                          </span>
                         </label>
                         <p className="err" id="agreeErr" role="alert">{errs.agree}</p>
                       </div>
                     )}
-                    <button className={`go2${busy ? " load" : ""}`} type="submit" disabled={busy}>
+
+                    <button
+                      className={`go2${busy ? " load" : ""}`}
+                      type="submit"
+                      disabled={busy || (isStudent && collegeStatus !== null && !collegeStatus.approved)}
+                    >
                       <span className="spin" aria-hidden="true" />
                       <span>{c.submit}</span>
                     </button>
                   </form>
 
+                  {/* Passwordless Email OTP alternative for Login */}
+                  {mode === "login" && (
+                    <div className="alt-auth">
+                      <button type="button" onClick={startEmailOtpLogin} disabled={busy}>
+                        📧 Or sign in with a 6-digit email code
+                      </button>
+                    </div>
+                  )}
+
                   <p className="sw">
-                    {mode === "signup" ? (<>Already have an account? <Link href={"/login" + carry}>Log in</Link></>) : (<>New to Doubtster? <Link href={"/signup" + carry}>Create a free account</Link></>)}
+                    {mode === "signup" ? (
+                      <>Already have an account? <Link href={"/login" + carry}>Log in</Link></>
+                    ) : (
+                      <>New to Doubtster? <Link href={"/signup" + carry}>Create a free account</Link></>
+                    )}
                   </p>
+
                   {mode === "signup" && (
-                    <div className="perks"><span>Free chat</span><span>Notes and flashcards</span><span>Quizzes</span><span>Videos with a trial</span></div>
+                    <div className="perks">
+                      <span>Free chat</span>
+                      <span>Notes & flashcards</span>
+                      <span>Quizzes</span>
+                      {isStudent && <span style={{ background: "#E8F0FE", color: "#1A54CC", fontWeight: 600 }}>🎓 University credits</span>}
+                      <span>Videos with trial</span>
+                    </div>
                   )}
                 </div>
 
+                {/* VIEW 2: Email OTP Verification Element */}
+                <div className="view" hidden={view !== "otp"}>
+                  <a
+                    className="back"
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setView("main");
+                      setOtpCode("");
+                      setOtpNote(null);
+                      setTimeout(() => emRef.current?.focus(), 50);
+                    }}
+                  >
+                    &larr; Back to {mode === "signup" ? "sign up" : "log in"}
+                  </a>
+
+                  <div className="otp-hero">
+                    <div className="otp-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect width="20" height="16" x="2" y="4" rx="2" />
+                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                      </svg>
+                    </div>
+                    <h1>Verify your email</h1>
+                    <p className="otp-lead">
+                      We sent a 6-digit verification code to <span className="otp-email">{otpEmail}</span>.
+                    </p>
+                  </div>
+
+                  {otpNote && <div className={`msg ${otpNote.kind}`} role="alert">{otpNote.text}</div>}
+
+                  <form className="f" onSubmit={submitOtp} noValidate>
+                    <div className="otp-input-wrap">
+                      <label htmlFor="otp-input" className="sr">Enter 6-digit verification code</label>
+                      <input
+                        id="otp-input"
+                        ref={otpRef}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        placeholder="000000"
+                        className="otp-code-input"
+                        value={otpCode}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                          setOtpCode(v);
+                        }}
+                      />
+                    </div>
+
+                    <button className={`go2${otpBusy ? " load" : ""}`} type="submit" disabled={otpBusy || otpCode.length !== 6}>
+                      <span className="spin" aria-hidden="true" />
+                      <span>Verify and continue</span>
+                    </button>
+
+                    <div className="otp-actions">
+                      <span>Didn&apos;t get the code?</span>
+                      <button
+                        type="button"
+                        className="otp-resend"
+                        onClick={resendOtp}
+                        disabled={otpCountdown > 0 || otpBusy}
+                      >
+                        {otpCountdown > 0 ? `Resend in ${otpCountdown}s` : "Resend code"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                {/* VIEW 3: Password Reset */}
                 {mode === "login" && (
                   <div className="view" hidden={view !== "reset"}>
-                    <a className="back" href="#" onClick={(e) => { e.preventDefault(); setView("main"); setTimeout(() => emRef.current?.focus(), 0); }}>&larr; Back to log in</a>
+                    <a
+                      className="back"
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setView("main");
+                        setTimeout(() => emRef.current?.focus(), 0);
+                      }}
+                    >
+                      &larr; Back to log in
+                    </a>
                     <h1>Reset your password</h1>
                     <p className="lead">Enter your email and we will send you a link to choose a new one.</p>
                     {rnote && <div className={`msg ${rnote.kind}`} role="status">{rnote.text}</div>}
                     <form className="f" onSubmit={submitReset} noValidate>
                       <div className="fld">
                         <label htmlFor="rem">Email</label>
-                        <div className="ip"><input id="rem" ref={remRef} type="email" autoComplete="email" inputMode="email" aria-describedby="remErr" aria-invalid={remErr ? "true" : "false"} value={rem} onChange={(e) => setRem(e.target.value)} /></div>
+                        <div className="ip">
+                          <input
+                            id="rem"
+                            ref={remRef}
+                            type="email"
+                            autoComplete="email"
+                            inputMode="email"
+                            aria-describedby="remErr"
+                            aria-invalid={remErr ? "true" : "false"}
+                            value={rem}
+                            onChange={(e) => setRem(e.target.value)}
+                          />
+                        </div>
                         <p className="err" id="remErr" role="alert">{remErr}</p>
                       </div>
                       <button className="go2" type="submit">Send reset link</button>
