@@ -11,6 +11,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
     }
 
+    let collegeMatch: any = null;
     if (isStudent) {
       const collegeRes = await checkCollegeDomain(cleanEmail);
       if (!collegeRes.approved) {
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
+      collegeMatch = collegeRes.college;
     }
 
     const supabase = await createClient();
@@ -26,6 +28,12 @@ export async function POST(request: Request) {
       email: cleanEmail,
       options: {
         shouldCreateUser: type === "signup",
+        data: {
+          is_student: !!isStudent,
+          college_id: collegeMatch?.id || "",
+          college_name: collegeMatch?.name || "",
+          college_credits: collegeMatch ? Number(collegeMatch.credits ?? 10) : 0,
+        },
       },
     });
 

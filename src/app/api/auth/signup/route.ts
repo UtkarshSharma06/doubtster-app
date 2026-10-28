@@ -36,6 +36,7 @@ export async function POST(request: Request) {
           is_student: !!isStudent,
           college_id: collegeMatch?.id || "",
           college_name: collegeMatch?.name || "",
+          college_credits: collegeMatch ? Number(collegeMatch.credits ?? 10) : 0,
         },
       },
     });
