@@ -1,6 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import {
+  sanitizeMermaidCode,
+  cleanupStrayMermaidElements,
+  isMermaidErrorSvg,
+} from "./mermaidUtils";
 
 export function DiagramVisual({ code }: { code: string }) {
   const [svgHtml, setSvgHtml] = useState<string | null>(null);
@@ -12,6 +17,7 @@ export function DiagramVisual({ code }: { code: string }) {
     let isCancelled = false;
 
     async function renderDiagram() {
+      const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
       try {
         setHasError(false);
         const mermaidModule = await import("mermaid");
@@ -21,6 +27,7 @@ export function DiagramVisual({ code }: { code: string }) {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
+          suppressErrorRendering: true,
           theme: isDark ? "dark" : "default",
           fontFamily: "system-ui, -apple-system, sans-serif",
           flowchart: {
@@ -30,19 +37,22 @@ export function DiagramVisual({ code }: { code: string }) {
           },
         });
 
-        const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
-        // Clean any code block fencing
-        let cleanCode = code.trim();
-        if (cleanCode.startsWith("```mermaid")) cleanCode = cleanCode.replace(/^```mermaid\s*/i, "");
-        if (cleanCode.startsWith("```diagram")) cleanCode = cleanCode.replace(/^```diagram\s*/i, "");
-        if (cleanCode.endsWith("```")) cleanCode = cleanCode.replace(/\s*```$/, "");
-
+        const cleanCode = sanitizeMermaidCode(code);
         const { svg } = await mermaid.render(id, cleanCode);
+
+        // Remove any phantom error nodes Mermaid creates in document.body
+        cleanupStrayMermaidElements(id);
+
+        if (isMermaidErrorSvg(svg)) {
+          throw new Error("Mermaid returned syntax error");
+        }
+
         if (!isCancelled) {
           setSvgHtml(svg);
         }
       } catch (err) {
-        console.warn("Mermaid diagram rendering error, displaying collapsed source:", err);
+        console.warn("Mermaid diagram rendering error:", err);
+        cleanupStrayMermaidElements(id);
         if (!isCancelled) {
           setHasError(true);
         }

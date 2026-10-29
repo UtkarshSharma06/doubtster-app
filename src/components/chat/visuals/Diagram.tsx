@@ -5,6 +5,11 @@ import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 import { DiagramSpec } from "@/lib/visuals/schema";
 import { VisualCardWrapper } from "./VisualCardWrapper";
+import {
+  sanitizeMermaidCode,
+  cleanupStrayMermaidElements,
+  isMermaidErrorSvg,
+} from "./mermaidUtils";
 
 export interface DiagramProps {
   spec: DiagramSpec;
@@ -17,6 +22,7 @@ function ensureMermaid() {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
+      suppressErrorRendering: true,
       flowchart: {
         htmlLabels: false,
         useMaxWidth: true,
@@ -50,9 +56,16 @@ export default function Diagram({ spec }: DiagramProps) {
     async function renderDiagram() {
       try {
         setError(null);
-        // Clean mermaid source
-        const cleanMermaid = spec.mermaid.trim();
+        // Clean and sanitize mermaid source
+        const cleanMermaid = sanitizeMermaidCode(spec.mermaid);
         const { svg } = await mermaid.render(diagramId, cleanMermaid);
+
+        // Remove any phantom error nodes Mermaid creates in document.body
+        cleanupStrayMermaidElements(diagramId);
+
+        if (isMermaidErrorSvg(svg)) {
+          throw new Error("Mermaid returned syntax error");
+        }
 
         if (active) {
           // Strictly sanitize SVG with DOMPurify
@@ -63,6 +76,7 @@ export default function Diagram({ spec }: DiagramProps) {
           setSvgHtml(sanitized);
         }
       } catch (err: any) {
+        cleanupStrayMermaidElements(diagramId);
         if (active) {
           console.warn("[Diagram] Mermaid render error:", err);
           setError("Couldn't draw this diagram.");
