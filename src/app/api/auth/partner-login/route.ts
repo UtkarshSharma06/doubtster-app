@@ -218,7 +218,7 @@ export async function GET(request: Request) {
 
     redirectResponse.headers.set(
       'Content-Security-Policy',
-      "frame-ancestors 'self' https://app.italostudy.com https://italostudy.com http://localhost:5173 http://localhost:3000 https://*.italostudy.com"
+      "frame-ancestors *"
     );
 
     return redirectResponse;
@@ -227,3 +227,4 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=Authentication+processing+failed`);
   }
 }
+

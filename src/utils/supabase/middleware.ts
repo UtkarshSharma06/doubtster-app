@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://qpsauvbbcpnzmocoacfw.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy'
 
-const CSP_FRAME_ANCESTORS = "frame-ancestors 'self' https://app.italostudy.com https://italostudy.com http://localhost:5173 http://localhost:3000 https://*.italostudy.com"
+const CSP_FRAME_ANCESTORS = "frame-ancestors *"
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -95,3 +95,4 @@ export async function updateSession(request: NextRequest) {
 
   return supabaseResponse
 }
+
