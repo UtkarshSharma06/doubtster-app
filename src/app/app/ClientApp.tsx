@@ -1,5 +1,4 @@
 "use client";
-
 import dynamic from "next/dynamic";
 
 const AppShell = dynamic(
@@ -7,6 +6,6 @@ const AppShell = dynamic(
   { ssr: false }
 );
 
-export function ClientApp() {
-  return <AppShell />;
+export function ClientApp({ user }: { user?: { id: string; email?: string; name?: string } | null }) {
+  return <AppShell user={user} />;
 }

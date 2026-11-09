@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `A 6-digit verification code has been sent to ${cleanEmail}. Check your inbox or spam folder.`,
+      message: `An 8-digit verification code has been sent to ${cleanEmail}. Check your inbox or spam folder.`,
     });
   } catch (error) {
     return NextResponse.json({ error: "Failed to send verification code." }, { status: 500 });

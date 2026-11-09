@@ -42,7 +42,19 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      let userMsg = error.message;
+      if (
+        error.message.toLowerCase().includes("already registered") ||
+        error.message.toLowerCase().includes("user already exists")
+      ) {
+        userMsg = "An account with this email already exists. Please log in instead.";
+      } else if (
+        error.message.toLowerCase().includes("fetch failed") ||
+        error.message.toLowerCase().includes("network")
+      ) {
+        userMsg = "Authentication service temporarily unreachable. Please check your connection or try again in a few seconds.";
+      }
+      return NextResponse.json({ error: userMsg }, { status: 400 });
     }
 
     const headersList = await headers();
@@ -67,12 +79,16 @@ export async function POST(request: Request) {
         requireOtp,
         email: cleanEmail,
         message: requireOtp
-          ? `We sent a 6-digit verification code to ${cleanEmail}.`
+          ? `We sent an 8-digit verification code to ${cleanEmail}.`
           : "Account created successfully",
       },
       { status: 200 }
     );
-  } catch (error) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  } catch (error: any) {
+    const isNetwork = error?.message?.toLowerCase().includes("fetch failed");
+    return NextResponse.json(
+      { error: isNetwork ? "Authentication service temporarily unreachable. Please try again." : "Invalid request" },
+      { status: 400 }
+    );
   }
 }

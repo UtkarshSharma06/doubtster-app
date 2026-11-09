@@ -221,6 +221,15 @@
   text-align: center;
 }
 
+.katex-error {
+  color: inherit !important;
+  font-family: inherit;
+  font-size: 0.95em;
+  background: rgba(47, 123, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 /* ==========================================================================
    Sticky Notes (Highlight Effect)
    ========================================================================== */
@@ -339,12 +348,13 @@
   flex-shrink: 0;
 }
 
-/* Caveat / Kalam handwriting font ONLY for the label */
+/* Clean premium label */
 .doubtster-note-label {
-  font-family: 'Kalam', 'Caveat', cursive, sans-serif;
-  font-size: 16.5px;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 13.5px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   line-height: 1;
 }
 
@@ -632,12 +642,12 @@
 }
 
 .doubtster-visual-handwritten-label {
-  font-family: var(--font-handwriting, "Caveat", "Kalam", "Segoe Print", cursive);
-  font-size: 22px;
-  font-weight: 700;
+  font-family: "Newsreader", "Copernicus", "Iowan Old Style", "Charter", Georgia, serif;
+  font-size: 20px;
+  font-weight: 600;
   color: #1E293B;
-  letter-spacing: 0.5px;
-  line-height: 1;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .doubtster-visual-title-badge {
@@ -1251,3 +1261,32 @@
   }
 }
 
+
+
+/* ==========================================================================
+   Dark Theme (Claude Dark Palette)
+   ========================================================================== */
+
+[data-theme="dark"] .doubtster-answer-wrapper {
+  color: #FAF9F5 !important;
+}
+
+[data-theme="dark"] .doubtster-answer-toolbar {
+  border-bottom-color: #383734 !important;
+}
+
+[data-theme="dark"] .doubtster-answer-badge {
+  color: #5B8CFF !important;
+  background: rgba(91, 140, 255, 0.12) !important;
+}
+
+[data-theme="dark"] .katex {
+  color: #FAF9F5 !important;
+}
+
+[data-theme="dark"] pre,
+[data-theme="dark"] code {
+  background: #1F1E1D !important;
+  color: #FAF9F5 !important;
+  border-color: #383734 !important;
+}

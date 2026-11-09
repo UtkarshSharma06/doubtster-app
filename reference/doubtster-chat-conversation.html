@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Doubtster · how replies adapt</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Caveat:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F4F4F5;--ink:#0B0B0F;--mute:#6E6E78;--line:#DADADF;--blue:#2F7BFF;--blue2:#7DB2FF;--yellow:#FFF1A6;--green:#1F9D55;--red:#D9443A;--board:#16372B}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:clip}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.dots{position:fixed;inset:50px 0 0 0;z-index:0;pointer-events:none;background-image:radial-gradient(circle,#C2C2C9 1.2px,transparent 1.5px);background-size:30px 30px;opacity:.7}
+.bar{position:sticky;top:0;z-index:50;height:50px;background:rgba(244,244,245,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar .in{height:50px;display:flex;align-items:center;gap:18px;padding:0 16px;font-size:15px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;letter-spacing:-.03em;font-size:18px}
+.logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(#8DBBFF,#2F7BFF);color:#fff;display:grid;place-items:center;font-weight:800;font-size:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.45);flex:none}
+.bar .r{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:14px;color:var(--mute)}
+.tog{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#3A3A42;border:1px solid var(--line);background:#fff;border-radius:99px;padding:5px 12px 5px 6px}
+.tog i{width:30px;height:18px;border-radius:99px;background:#D6D6DC;position:relative;transition:background .2s}
+.tog i:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .25s cubic-bezier(.2,1.4,.4,1);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.tog.on i{background:var(--blue)}.tog.on i:after{transform:translateX(12px)}
+.av{width:30px;height:30px;border-radius:50%;background:linear-gradient(#9B7BFF,#6B46E5);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+
+.app{position:relative;z-index:1;display:grid;grid-template-columns:250px minmax(0,1fr);min-height:calc(100vh - 50px)}
+.side{position:sticky;top:50px;height:calc(100vh - 50px);border-right:1px solid var(--line);background:rgba(250,250,252,.8);backdrop-filter:blur(8px);padding:14px 12px;display:flex;flex-direction:column;gap:6px}
+.newc{height:42px;border-radius:99px;color:#fff;font-weight:500;border:1px solid #1F63D8;background:linear-gradient(#7DB2FF,#2F7BFF);box-shadow:0 8px 18px -10px rgba(47,123,255,.9),inset 0 1px 0 rgba(255,255,255,.5);margin-bottom:8px}
+.ng{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:600;padding:12px 10px 4px}
+.hist button{display:block;width:100%;text-align:left;padding:8px 10px;border-radius:9px;font-size:13.5px;color:#3A3A42;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist button.on{background:#E6EEFF;color:#1F4FA8;font-weight:500}
+.legend2{margin-top:auto;border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:12.5px;color:#4A4A53}
+.legend2 b{display:block;font-size:13px;color:var(--ink);margin-bottom:6px}
+.legend2 div{display:flex;align-items:center;gap:8px;margin:5px 0}
+.main{min-width:0;padding:26px clamp(16px,3vw,40px) 150px}
+.thread{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+
+/* messages */
+.um{align-self:flex-end;max-width:min(540px,86%);background:linear-gradient(#5E9BFF,#2F7BFF);color:#fff;border-radius:18px 18px 4px 18px;padding:10px 15px;font-size:15.5px;box-shadow:0 8px 18px -12px rgba(47,123,255,.9)}
+.ai{display:flex;gap:12px;align-items:flex-start;max-width:100%}
+.ai .logo{width:30px;height:30px;margin-top:2px}
+.ai .body{flex:1;min-width:0}
+.plain{font-size:15.5px;color:#26262C;max-width:62ch}
+.plain p+p{margin-top:8px}
+.plain b{color:var(--ink)}
+.why{display:none;margin-bottom:8px}
+body.logic .why{display:flex}
+.why span{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;border-radius:99px;padding:3px 10px 3px 8px;border:1px solid}
+.why span i{width:8px;height:8px;border-radius:50%}
+.k-chat{background:#F1F1F4;border-color:#E0E0E6;color:#4A4A53}.k-chat i{background:#9A9AA5}
+.k-new{background:#E6EEFF;border-color:#C9DAF8;color:#1F4FA8}.k-new i{background:var(--blue)}
+.k-clar{background:#FFF6DA;border-color:#F0DE9A;color:#7A5A00}.k-clar i{background:#E3A400}
+.k-ext{background:#E7F7EE;border-color:#B6E3C6;color:#14623A}.k-ext i{background:var(--green)}
+.k-re{background:#F3EDFF;border-color:#DCCDFB;color:#5B37B8}.k-re i{background:#8B5CF6}
+.k-rep{background:#FDEDEC;border-color:#F4C9C4;color:#9B2C22}.k-rep i{background:var(--red)}
+.why em{font-style:normal;font-weight:400;color:var(--mute);font-size:12px;margin-left:8px;align-self:center}
+
+.win{background:#fff;border:1px solid #C9C9CF;border-radius:12px;box-shadow:0 14px 34px -16px rgba(0,0,0,.3),inset 0 1px 0 #fff;overflow:hidden}
+.tb{height:28px;display:flex;align-items:center;gap:6px;padding:0 10px;background:linear-gradient(#F3F3F5,#E4E4E8);border-bottom:1px solid #D2D2D8;font-size:12px;color:var(--mute)}
+.tb i{width:11px;height:11px;border-radius:50%;background:#FF5F57}.tb i:nth-child(2){background:#FEBC2E}.tb i:nth-child(3){background:#28C840}
+.tb em{font-style:normal;margin-left:6px}.tb span{margin-left:auto}
+.ab{padding:22px 24px 22px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:99px;background:#F1F1F4;color:#4A4A53;border:1px solid #E2E2E7}
+.chip.sub{background:#FDE7F0;color:#B8326B;border-color:#F6C9DB;text-transform:uppercase;letter-spacing:.08em}
+h3.at{font-size:23px;letter-spacing:-.03em;font-weight:700;margin:12px 0 6px;line-height:1.15}
+.lead{font-size:15px;color:#3E3E46}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+.tile{background:linear-gradient(#F5F9FF,#EAF2FF);border:1px solid #CFE0FF;border-radius:12px;padding:12px 14px}
+.tile small{display:block;font-size:12px;color:var(--mute)}
+.tile b{font-size:26px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.tile b em{font-style:normal;font-size:14px;color:var(--mute);font-weight:500;margin-left:2px}
+.slist{list-style:none;margin-top:16px;counter-reset:s}
+.slist li{counter-increment:s;position:relative;padding:10px 0 10px 40px;border-top:1px solid #F0F0F3;font-size:14.5px;color:#33333B}
+.slist li:before{content:counter(s);position:absolute;left:0;top:10px;width:26px;height:26px;border-radius:50%;border:2px solid var(--blue);color:var(--blue);display:grid;place-items:center;font-weight:700;font-size:12.5px}
+.slist li.hl{background:#FFFBE6;border-radius:8px;transition:background .6s}
+.eq{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:13.5px;background:#F4F4F7;border-radius:7px;padding:2px 8px;margin-top:4px;color:#2B2B31}
+.res{background:var(--yellow);border-radius:5px;padding:0 6px;font-weight:600;color:var(--ink)}
+.fig{border:1px solid #E4E4E9;border-radius:12px;background:#fff;overflow:hidden;margin-top:14px}
+.fig .fh{display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #EEEEF2;font-size:13px}
+.fig .fh span{color:var(--mute);font-size:12px}
+.fig svg{display:block;width:100%;height:auto}
+.make{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.make button{display:inline-flex;align-items:center;gap:8px;border-radius:99px;padding:8px 14px;font-size:13.5px;font-weight:600;border:1px solid var(--line);background:#fff;transition:transform .15s}
+.make button:hover{transform:translateY(-2px)}
+.make .v{background:linear-gradient(#5E9BFF,#2F7BFF);color:#fff;border-color:#1F63D8}
+.make .v small{opacity:.8;font-weight:500}
+
+/* follow-up card */
+.fu{background:#fff;border:1px solid #E2E2E7;border-radius:14px;padding:16px 18px;box-shadow:0 8px 20px -16px rgba(0,0,0,.3)}
+.ref{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#1F4FA8;background:#EEF4FF;border:1px solid #D3E2FD;border-radius:8px;padding:3px 9px;margin-bottom:10px;transition:background .2s}
+.ref:hover{background:#E1ECFF}
+.fu p{font-size:15px;color:#2B2B31}
+.fu p+p{margin-top:8px}
+.hand{font-family:Caveat,cursive;font-size:21px;color:var(--blue);line-height:1.1;margin-top:10px}
+.mini{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.mini div{border:1px solid #E4E4E9;border-radius:10px;padding:10px 12px;background:#FAFAFC}
+.mini small{font-size:12px;color:var(--mute);display:block}.mini b{font-size:20px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.chg{font-size:12px;font-weight:600;color:var(--green);margin-left:6px}
+.tl{display:flex;height:34px;border-radius:9px;overflow:hidden;margin-top:12px;font-size:12.5px;font-weight:600;color:#fff}
+.tl div{display:grid;place-items:center}
+.analogy{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
+.analogy .fig{margin-top:0}
+.fups{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.fups button{border:1px solid #C9C9CF;background:linear-gradient(#fff,#F1F1F4);border-radius:99px;padding:6px 12px;font-size:13.5px;font-weight:500;transition:transform .15s}
+.fups button:hover{transform:translateY(-2px)}
+.flash{animation:fl 1.6s ease}
+@keyframes fl{0%,100%{box-shadow:0 14px 34px -16px rgba(0,0,0,.3)}20%,60%{box-shadow:0 0 0 4px rgba(47,123,255,.35),0 14px 34px -16px rgba(0,0,0,.3)}}
+
+/* typing + reveal */
+.msg{opacity:0;transform:translateY(14px);transition:opacity .5s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.2,.8,.2,1)}
+.msg.in{opacity:1;transform:none}
+.typing{display:none;gap:5px;padding:10px 0}
+.typing i{width:7px;height:7px;border-radius:50%;background:#A0A0AA;animation:tp 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes tp{0%,60%,100%{transform:none;opacity:.5}30%{transform:translateY(-4px);opacity:1}}
+.ai.wait .typing{display:flex}.ai.wait .content{display:none}
+.draw{stroke-dasharray:var(--len);stroke-dashoffset:var(--len)}
+.in .draw{transition:stroke-dashoffset 1.4s cubic-bezier(.45,0,.2,1) .2s;stroke-dashoffset:0}
+
+/* rules panel */
+.rules{margin-top:30px}
+.rules summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;padding:14px 16px;border:1px dashed #BFC5D6;border-radius:12px;background:#FAFAFC}
+.rules summary::-webkit-details-marker{display:none}
+.rules summary:after{content:"+";margin-left:auto;color:var(--mute);font-size:20px}
+.rules[open] summary:after{content:"×"}
+.rules .rb{padding:16px 4px 0}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rc{border:1px solid #E4E4E9;border-radius:12px;background:#fff;padding:12px 14px;font-size:13.5px;color:#3E3E46}
+.rc h4{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);margin-bottom:4px}
+pre.prompt{margin-top:14px;background:#12141A;color:#D9DBE2;border-radius:12px;padding:16px 18px;font-family:"JetBrains Mono",monospace;font-size:12.5px;line-height:1.6;white-space:pre-wrap;position:relative}
+pre.prompt .c{color:#8DBBFF}
+.copy{position:absolute;top:10px;right:10px;font-family:Inter;font-size:12px;background:#23262E;color:#D9DBE2;border-radius:7px;padding:4px 10px}
+
+.comp{position:fixed;left:250px;right:0;bottom:0;padding:12px clamp(16px,3vw,40px) 14px;background:linear-gradient(rgba(244,244,245,0),var(--bg) 30%);z-index:20}
+.cbox{max-width:820px;margin:0 auto;background:#fff;border:1px solid #D2D2D9;border-radius:20px;box-shadow:0 14px 34px -20px rgba(20,20,40,.45);display:flex;align-items:flex-end;gap:10px;padding:10px 10px 10px 18px}
+.cbox input{flex:1;border:0;outline:0;font:inherit;font-size:15.5px;padding:7px 0;background:none}
+.send{width:38px;height:38px;border-radius:50%;color:#fff;background:linear-gradient(#7DB2FF,#2F7BFF);border:1px solid #1F63D8;font-size:18px;flex:none}
+.cnote{max-width:820px;margin:6px auto 0;text-align:center;font-size:11.5px;color:var(--mute)}
+@media(max-width:860px){.app{grid-template-columns:minmax(0,1fr)}.side{display:none}.comp{left:0}.tiles{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.analogy,.rgrid{grid-template-columns:minmax(0,1fr)}.ab{padding:18px 16px}.tog span{display:none}}
+@media(prefers-reduced-motion:reduce){.msg{opacity:1;transform:none}.draw{stroke-dashoffset:0}*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body class="logic">
+<div class="dots"></div>
+<header class="bar"><div class="in">
+  <div class="brand"><span class="logo">?</span>Doubtster</div>
+  <div class="r">
+    <button class="tog on" id="tog" aria-pressed="true"><i></i><span>show how it decides</span></button>
+    <span class="av">M</span>
+  </div>
+</div></header>
+
+<div class="app">
+  <aside class="side">
+    <button class="newc">+ new chat</button>
+    <div class="ng">Today</div>
+    <div class="hist"><button class="on">Physics test prep</button><button>Why does ice float?</button><button>Integrate x·sin(x)</button></div>
+    <div class="legend2"><b>Reply types</b>
+      <div class="why" style="display:flex"><span class="k-chat"><i></i>small talk</span></div>
+      <div class="why" style="display:flex"><span class="k-new"><i></i>new question</span></div>
+      <div class="why" style="display:flex"><span class="k-clar"><i></i>clarify a step</span></div>
+      <div class="why" style="display:flex"><span class="k-ext"><i></i>what if</span></div>
+      <div class="why" style="display:flex"><span class="k-re"><i></i>explain differently</span></div>
+      <div class="why" style="display:flex"><span class="k-rep"><i></i>asked again</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="thread" id="thread">
+
+      <!-- 1 small talk -->
+      <div class="um msg">hi</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-chat"><i></i>small talk</span><em>plain reply · no cards, no video, no buttons</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content plain"><p>Hey! 👋 What are you working on today?</p></div>
+      </div></div>
+
+      <div class="um msg">ugh physics test tomorrow and i'm so behind lol</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-chat"><i></i>small talk</span><em>empathise, ask one question, stay short</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content plain"><p>Oof, the night-before feeling. You're not as behind as it feels, though. What topics are on the test? Let's start with the one that scares you most.</p></div>
+      </div></div>
+
+      <!-- 2 new question -->
+      <div class="um msg">projectiles. a ball is kicked at 20 m/s at 30°. how high, how long in the air, how far?</div>
+      <div class="ai msg" id="a1"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-new"><i></i>new question</span><em>full structured answer · graph · video and cards offered once, at the end</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content"><article class="win" id="card1">
+          <div class="tb"><i></i><i></i><i></i><em>answer.md</em><span>4 steps</span></div>
+          <div class="ab">
+            <span class="chip sub">Physics</span> <span class="chip">projectile motion</span>
+            <h3 class="at">Kicked at 20 m/s, 30°: height, time, range</h3>
+            <p class="lead">Split the speed into sideways and upward parts. Gravity only slows the upward part.</p>
+            <div class="tiles">
+              <div class="tile"><small>max height</small><b>5.10<em>m</em></b></div>
+              <div class="tile"><small>time in air</small><b>2.04<em>s</em></b></div>
+              <div class="tile"><small>range</small><b>35.3<em>m</em></b></div>
+            </div>
+            <ol class="slist">
+              <li id="st1"><b>Split the velocity.</b> <span class="eq">vₓ = 20 cos30° = 17.32</span> <span class="eq">vᵧ = 20 sin30° = 10</span></li>
+              <li id="st2"><b>Time to the top</b> (vᵧ = 0): <span class="eq">t = 10 / 9.8 = <span class="res">1.02 s</span></span></li>
+              <li id="st3"><b>Height:</b> <span class="eq">H = vᵧ² / 2g = <span class="res">5.10 m</span></span> &nbsp; <b>Air time:</b> <span class="eq">T = 2 × 1.02 = <span class="res">2.04 s</span></span></li>
+              <li id="st4"><b>Range:</b> <span class="eq">R = vₓ × T = 17.32 × 2.04 = <span class="res">35.3 m</span></span></li>
+            </ol>
+            <div class="fig"><div class="fh"><b>Path of the ball</b><span>height vs distance (m)</span></div>
+              <svg viewBox="0 0 700 220">
+                <g stroke="#F0F0F3"><line x1="50" x2="680" y1="190" y2="190" stroke="#C9C9D1" stroke-width="1.5"/></g>
+                <path class="draw" style="--len:720" d="M50 190 Q 365 -30 680 190" fill="none" stroke="#2F7BFF" stroke-width="3.5" stroke-linecap="round"/>
+                <line x1="365" x2="365" y1="80" y2="190" stroke="#F5A623" stroke-dasharray="4 4"/>
+                <circle cx="365" cy="80" r="6" fill="#F5A623" stroke="#fff" stroke-width="2"/>
+                <circle cx="680" cy="190" r="6" fill="#1F9D55" stroke="#fff" stroke-width="2"/>
+                <text x="375" y="74" font-family="JetBrains Mono" font-size="13" fill="#B07500">H = 5.10 m</text>
+                <text x="672" y="178" font-family="JetBrains Mono" font-size="13" fill="#1F7A44" text-anchor="end">R = 35.3 m</text>
+                <text x="52" y="210" font-family="JetBrains Mono" font-size="12" fill="#6E6E78">0</text>
+              </svg>
+            </div>
+            <div class="make"><button class="v">▶ Explainer video <small>2 credits</small></button><button>Flashcards</button><button>Practice quiz</button></div>
+          </div>
+        </article></div>
+      </div></div>
+
+      <!-- 3 clarify -->
+      <div class="um msg">wait why do we double the time?</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-clar"><i></i>clarify step 3</span><em>answer only that step · reuse earlier numbers · no repeat of the full solution</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content fu">
+          <button class="ref" data-jump="st3">↑ about step 3: T = 2 × 1.02 s</button>
+          <p>Because the trip is <b>symmetric</b>. Gravity takes the ball from 10 m/s up to 0 in 1.02 s, then speeds it from 0 back to 10 m/s downward in exactly the same time.</p>
+          <div class="tl"><div style="width:50%;background:#2F7BFF">going up · 1.02 s</div><div style="width:50%;background:#1F9D55">coming down · 1.02 s</div></div>
+          <p style="margin-top:10px">This only works when it lands at the <b>same height</b> it started from. Off a cliff or onto a table, you can't just double it.</p>
+          <div class="hand">quick test: up-time = down-time only on flat ground</div>
+        </div>
+      </div></div>
+
+      <!-- 4 extend -->
+      <div class="um msg">ok what if it's kicked off a 10 m cliff?</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-ext"><i></i>what if</span><em>new calculation built on the old one · only what changes</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content fu">
+          <button class="ref" data-jump="card1">↑ same kick as before: vₓ = 17.32, vᵧ = 10</button>
+          <p>Nice, this is exactly the case where doubling breaks. The split velocity stays the same; only the landing height changes, so solve for when the height hits <b>−10 m</b>:</p>
+          <p><span class="eq">−10 = 10t − 4.9t² &nbsp;→&nbsp; 4.9t² − 10t − 10 = 0 &nbsp;→&nbsp; t = <span class="res">2.78 s</span></span></p>
+          <div class="mini">
+            <div><small>time in air</small><b>2.78 s</b><span class="chg">+0.74 s</span></div>
+            <div><small>range</small><b>48.1 m</b><span class="chg">+12.8 m</span></div>
+            <div><small>highest point above ground</small><b>15.1 m</b><span class="chg">10 + 5.1</span></div>
+            <div><small>speed when it lands</small><b>24.4 m/s</b><span class="chg">faster than 20</span></div>
+          </div>
+          <div class="fig"><div class="fh"><b>Flat ground vs cliff</b><span>same kick</span></div>
+            <svg viewBox="0 0 700 230">
+              <rect x="20" y="100" width="40" height="120" fill="#E9E4DA"/><line x1="20" x2="690" y1="220" y2="220" stroke="#C9C9D1" stroke-width="1.5"/>
+              <line x1="60" x2="520" y1="100" y2="100" stroke="#C9C9D1" stroke-dasharray="4 5"/>
+              <path d="M60.0 100.0 L71.0 94.0 L82.1 88.4 L93.1 83.0 L104.2 78.0 L115.2 73.2 L126.3 68.8 L137.3 64.6 L148.4 60.8 L159.4 57.3 L170.5 54.1 L181.5 51.2 L192.6 48.6 L203.6 46.3 L214.6 44.3 L225.7 42.6 L236.7 41.2 L247.8 40.2 L258.8 39.4 L269.9 38.9 L280.9 38.8 L292.0 38.9 L303.0 39.4 L314.1 40.2 L325.1 41.2 L336.2 42.6 L347.2 44.3 L358.2 46.3 L369.3 48.6 L380.3 51.2 L391.4 54.1 L402.4 57.3 L413.5 60.8 L424.5 64.6 L435.6 68.8 L446.6 73.2 L457.7 78.0 L468.7 83.0 L479.8 88.4 L490.8 94.0 L501.8 100.0" fill="none" stroke="#9DBFF5" stroke-width="3" stroke-dasharray="7 6"/>
+              <path class="draw" style="--len:673" d="M60.0 100.0 L70.0 94.6 L80.0 89.4 L90.1 84.5 L100.1 79.8 L110.1 75.4 L120.1 71.2 L130.1 67.3 L140.1 63.6 L150.2 60.2 L160.2 57.1 L170.2 54.2 L180.2 51.5 L190.2 49.1 L200.2 46.9 L210.3 45.0 L220.3 43.4 L230.3 42.0 L240.3 40.8 L250.3 40.0 L260.3 39.3 L270.4 38.9 L280.4 38.8 L290.4 38.9 L300.4 39.3 L310.4 39.9 L320.4 40.7 L330.5 41.9 L340.5 43.2 L350.5 44.8 L360.5 46.7 L370.5 48.8 L380.5 51.2 L390.6 53.9 L400.6 56.7 L410.6 59.9 L420.6 63.3 L430.6 66.9 L440.6 70.8 L450.7 74.9 L460.7 79.3 L470.7 84.0 L480.7 88.8 L490.7 94.0 L500.7 99.4 L510.8 105.0 L520.8 110.9 L530.8 117.1 L540.8 123.5 L550.8 130.2 L560.8 137.1 L570.9 144.2 L580.9 151.6 L590.9 159.3 L600.9 167.2 L610.9 175.4 L621.0 183.8 L631.0 192.5 L641.0 201.4 L651.0 210.6 L661.0 220.0" fill="none" stroke="#1F9D55" stroke-width="3.5" stroke-linecap="round"/>
+              <circle cx="501.8" cy="100" r="5" fill="#9DBFF5"/><circle cx="661.0" cy="220" r="6" fill="#1F9D55" stroke="#fff" stroke-width="2"/>
+              <text x="509.8" y="92" font-family="JetBrains Mono" font-size="12" fill="#5B85C8">flat: 35.3 m</text>
+              <text x="655.0" y="208" font-family="JetBrains Mono" font-size="12" fill="#1F7A44" text-anchor="end">cliff: 48.1 m</text>
+              <text x="26" y="165" font-family="JetBrains Mono" font-size="12" fill="#6E6E78">10 m</text>
+            </svg>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- 5 re-explain -->
+      <div class="um msg">honestly i still don't get the split part</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-re"><i></i>explain differently</span><em>new angle (an analogy), simpler words, no copy of step 1</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content fu">
+          <p>Totally fair, let's try it without formulas. Picture two torches shining on the ball:</p>
+          <div class="analogy">
+            <div class="fig"><div class="fh"><b>Torch from above</b><span>shadow on the floor</span></div>
+              <svg viewBox="0 0 320 130"><line x1="20" x2="300" y1="110" y2="110" stroke="#C9C9D1" stroke-width="1.5"/>
+                <g fill="#1F9D55"><circle cx="40" cy="110" r="5" opacity=".3"/><circle cx="105" cy="110" r="5" opacity=".5"/><circle cx="170" cy="110" r="5" opacity=".7"/><circle cx="235" cy="110" r="5" opacity=".85"/><circle cx="300" cy="110" r="5"/></g>
+                <text x="20" y="40" font-family="Inter" font-size="13" fill="#3E3E46">moves the same distance</text><text x="20" y="58" font-family="Inter" font-size="13" fill="#3E3E46">every second → <tspan font-weight="700" fill="#1F7A44">vₓ</tspan></text></svg></div>
+            <div class="fig"><div class="fh"><b>Torch from the side</b><span>shadow on a wall</span></div>
+              <svg viewBox="0 0 320 130"><line x1="160" x2="160" y1="10" y2="120" stroke="#C9C9D1" stroke-width="1.5"/>
+                <g fill="#D9443A"><circle cx="160" cy="115" r="5" opacity=".3"/><circle cx="160" cy="62" r="5" opacity=".55"/><circle cx="160" cy="35" r="5"/><circle cx="160" cy="62" r="5" opacity=".55"/></g>
+                <text x="180" y="45" font-family="Inter" font-size="13" fill="#3E3E46">goes up, slows,</text><text x="180" y="63" font-family="Inter" font-size="13" fill="#3E3E46">stops, falls back</text><text x="180" y="81" font-family="Inter" font-size="13" fill="#3E3E46">→ <tspan font-weight="700" fill="#B0322A">vᵧ</tspan></text></svg></div>
+          </div>
+          <p style="margin-top:12px">The real ball is just both shadows happening at once. That's all "splitting" means: we study the <b>floor shadow</b> (steady) and the <b>wall shadow</b> (thrown straight up) separately, then put them back together.</p>
+          <p>Does that click better? If yes, try this: at the very top of the path, which shadow has stopped?</p>
+        </div>
+      </div></div>
+
+      <!-- 6 asked again -->
+      <div class="um msg">so how far does it land again?</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-rep"><i></i>asked again</span><em>short recall + link back · never paste the same answer twice</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content plain">
+          <p><b>35.3 m</b> on flat ground, or <b>48.1 m</b> if it's kicked off the 10 m cliff. Both are worked out above.</p>
+          <div class="fups"><button data-jump="st4">↑ see the flat-ground working</button><button>give me a similar one to try</button></div>
+        </div>
+      </div></div>
+
+      <!-- 7 thanks -->
+      <div class="um msg">thanks!! this actually helped</div>
+      <div class="ai msg"><span class="logo">?</span><div class="body">
+        <div class="why"><span class="k-chat"><i></i>small talk</span><em>warm and short · no upsell</em></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="content plain"><p>Anytime! You clearly get it now. Get some sleep tonight, it helps more than one extra hour of revision. Good luck tomorrow 🍀</p></div>
+      </div></div>
+
+      <!-- rules -->
+      <details class="rules msg">
+        <summary>🧭 Reply rules for the Doubtster AI (for the build)</summary>
+        <div class="rb">
+          <div class="rgrid">
+            <div class="rc"><h4><span class="why" style="display:inline-flex"><span class="k-chat"><i></i>small talk</span></span></h4>Greetings, feelings, thanks, jokes. Reply like a friendly person in 1 to 3 sentences. No headings, no answer card, no video, flashcard or quiz buttons.</div>
+            <div class="rc"><h4><span class="why" style="display:inline-flex"><span class="k-new"><i></i>new question</span></span></h4>A new problem or topic. Full structured answer: result first, steps, a graph if it helps. Offer video, flashcards and quiz once, at the end.</div>
+            <div class="rc"><h4><span class="why" style="display:inline-flex"><span class="k-clar"><i></i>clarify a step</span></span></h4>"Why…?", "how did you get…?" about part of an earlier answer. Answer only that part, point to the step, reuse its numbers. 3 to 6 sentences.</div>
+            <div class="rc"><h4><span class="why" style="display:inline-flex"><span class="k-ext"><i></i>what if</span></span></h4>A changed condition. Keep what stays the same, recalculate only what changes, and show the difference from the first answer.</div>
+            <div class="rc"><h4><span class="why" style="display:inline-flex"><span class="k-re"><i></i>explain differently</span></span></h4>"I don't get it." Never repeat the same wording. Switch method: an analogy, a picture, smaller steps or simpler words. End with one check question.</div>
+            <div class="rc"><h4><span class="why" style="display:inline-flex"><span class="k-rep"><i></i>asked again</span></span></h4>The same question as before. Give the result in one line and link back to where it was worked out. Offer a new practice question instead of re-pasting.</div>
+          </div>
+          <pre class="prompt"><button class="copy" id="cp">copy</button><span class="c"># system prompt: reply routing</span>
+Before replying, classify the latest message using the whole chat:
+SMALL_TALK | NEW_QUESTION | CLARIFY | WHAT_IF | RE_EXPLAIN | REPEAT
+
+SMALL_TALK: reply naturally in 1-3 sentences. No structure, no tools,
+  never offer videos, flashcards or quizzes.
+NEW_QUESTION: return the full structured answer JSON (summary, steps,
+  graph, mistakes). Offer video/flashcards/quiz once at the end.
+CLARIFY: answer only the part asked about. Reference the step number
+  and reuse earlier values. Do not restate the full solution.
+WHAT_IF: reuse unchanged values, recompute only what changed, show
+  the difference from the original answer.
+RE_EXPLAIN: use a different method (analogy, diagram, smaller steps,
+  simpler language). Never reuse sentences from earlier replies.
+  End with one short check question.
+REPEAT: give the result in one line and point back to the earlier
+  answer. Offer a new practice question.
+
+Never send the same reply twice in a chat. Match the student's tone.</pre>
+        </div>
+      </details>
+    </div>
+  </main>
+</div>
+
+<div class="comp">
+  <div class="cbox"><input placeholder="Say hi, ask a question, or ask a follow-up"><button class="send" aria-label="Send">↑</button></div>
+  <div class="cnote">chat is free · videos use credits</div>
+</div>
+
+<script>
+(function(){
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var tog=document.getElementById('tog');
+  tog.onclick=function(){var on=document.body.classList.toggle('logic');tog.classList.toggle('on',on);tog.setAttribute('aria-pressed',on)};
+  /* reveal messages as you scroll; AI shows typing dots first */
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)return;var m=e.target;io.unobserve(m);
+    m.classList.add('in');
+    if(m.classList.contains('ai')&&!reduce){var long=m.querySelector('.win,.fu');m.classList.add('wait');setTimeout(function(){m.classList.remove('wait');
+      m.querySelectorAll('.draw').forEach(function(d){d.closest('.fig').classList.add('in')})},long?1100:650)}
+    else m.querySelectorAll('.fig').forEach(function(f){f.classList.add('in')});
+  })},{rootMargin:'0px 0px -8% 0px'});
+  document.querySelectorAll('.msg').forEach(function(m,i){m.style.transitionDelay=(i<3?i*120:0)+'ms';io.observe(m)});
+  /* jump links back to earlier steps */
+  document.addEventListener('click',function(e){var b=e.target.closest('[data-jump]');if(!b)return;var t=document.getElementById(b.dataset.jump);if(!t)return;
+    t.scrollIntoView({behavior:reduce?'auto':'smooth',block:'center'});
+    if(t.tagName==='LI'){t.classList.add('hl');setTimeout(function(){t.classList.remove('hl')},1800)}else{t.classList.remove('flash');void t.offsetWidth;t.classList.add('flash')}});
+  var cp=document.getElementById('cp');cp.onclick=function(e){e.preventDefault();var txt=cp.parentElement.innerText.replace(/^copy\s*/,'');
+    (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(function(){cp.textContent='copied'},function(){cp.textContent='select & copy'});setTimeout(function(){cp.textContent='copy'},1500)};
+})();
+</script>
+</body>
+</html>

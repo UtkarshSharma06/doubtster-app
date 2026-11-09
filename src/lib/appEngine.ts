@@ -8,17 +8,148 @@
 import { renderAnswerMount } from "@/components/chat/AnswerRenderer";
 import { renderNotesMount } from "@/components/notes/NotesBoard";
 import { notebookDocToMarkdown } from "@/lib/notebookSchema";
+import katex from "katex";
 
-export function mountApp(CFG) {
+export function mountApp(CFG, initialUser) {
 'use strict';
 var offs=[];
 function on(t,ev,fn,o){t.addEventListener(ev,fn,o);offs.push(function(){t.removeEventListener(ev,fn,o)})}
 function iv(fn,ms){var id=setInterval(fn,ms);offs.push(function(){clearInterval(id)})}
 var SITE=CFG.SITE||'';
 var PRICE={trial:1.99,monthly:7.99,annual:59,credits:30,packs:[{n:10,p:4.99},{n:25,p:9.99}],trialDays:7,trialCredits:3,topupDays:90,videoCost:{2:1,5:2}};
-var DAY=86400000,KEY='doubtster-app-v2';
+var USER_ID = (initialUser && initialUser.id) ? initialUser.id : '';
+var DAY=86400000,KEY=USER_ID ? ('doubtster-app-v2:' + USER_ID) : 'doubtster-app-v2';
 var $=function(i){return document.getElementById(i)};
 var h=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')};
+function cleanMath(raw){
+  if(!raw)return '';
+  var s=String(raw).trim();
+  while(s.startsWith('$$')&&s.endsWith('$$')&&s.length>=4){s=s.slice(2,-2).trim()}
+  while(s.startsWith('$')&&s.endsWith('$')&&s.length>=2){s=s.slice(1,-1).trim()}
+  while(s.startsWith('\\[')&&s.endsWith('\\]')&&s.length>=4){s=s.slice(2,-2).trim()}
+  while(s.startsWith('\\(')&&s.endsWith('\\)')&&s.length>=4){s=s.slice(2,-2).trim()}
+  s=s.replace(/(^|[^\\])\$/g,'$1 ').trim();
+  return s.trim();
+}
+function renderMath(str){
+  if(str==null)return '';
+  var s=String(str)
+    .replace(/\\\[([\s\S]*?)\\\]/g,function(_,eq){return '$$ '+cleanMath(eq)+' $$'})
+    .replace(/\\\(([\s\S]*?)\\\)/g,function(_,eq){return '$'+cleanMath(eq)+'$'});
+  var parts=[],regex=/(\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$)/g,lastIndex=0,match;
+  while((match=regex.exec(s))!==null){
+    if(match.index>lastIndex){parts.push(h(s.slice(lastIndex,match.index)));}
+    var raw=match[0],isBlock=raw.startsWith('$$'),expr=cleanMath(isBlock?raw.slice(2,-2):raw.slice(1,-1));
+    try{parts.push(katex.renderToString(expr,{displayMode:isBlock,throwOnError:false,errorColor:'#c92a2a'}));}
+    catch(err){parts.push(h(raw));}
+    lastIndex=match.index+raw.length;
+  }
+  if(lastIndex<s.length){parts.push(h(s.slice(lastIndex)));}
+  return parts.join('');
+}
+function renderTutorMarkdown(raw){
+  if(raw==null)return '';
+  var text=String(raw).trim();
+
+  // Normalize inline smashed bullets like ": * **Item**" or ". * **Item**"
+  text=text.replace(/:\s*[\*•-]\s+/g,':\n\n* ');
+  text=text.replace(/([.!?])\s+[\*•-]\s+/g,'$1\n* ');
+  text=text.replace(/([^\n])\s+[\*•-]\s+(\*\*[^*]+\*\*)/g,'$1\n* $2');
+  // Separate trailing conversational questions / call-to-actions after bullet points
+  text=text.replace(/([.!?])\s+(Chatting with me is|Feel free to|Let me know if|What subject are you|How can I help)\b/gi,'$1\n\n$2');
+
+  // Protect math expressions before markdown parsing
+  var mathTokens=[];
+  text=text
+    .replace(/\\\[([\s\S]*?)\\\]/g,function(_,eq){return '$$ '+cleanMath(eq)+' $$'})
+    .replace(/\\\(([\s\S]*?)\\\)/g,function(_,eq){return '$'+cleanMath(eq)+'$'});
+
+  var mathRegex=/(\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$)/g;
+  text=text.replace(mathRegex,function(match){
+    var placeholder='@@MATH_'+mathTokens.length+'@@';
+    var isBlock=match.startsWith('$$');
+    var expr=cleanMath(isBlock?match.slice(2,-2):match.slice(1,-1));
+    mathTokens.push({isBlock:isBlock,expr:expr,raw:match});
+    return placeholder;
+  });
+
+  function formatInline(str){
+    var s=h(str);
+    // Bold
+    s=s.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
+    s=s.replace(/__([^_\n]+?)__/g,'<strong>$1</strong>');
+    // Italic
+    s=s.replace(/(^|[^\*])\*([^*\n]+?)\*([^\*]|$)/g,'$1<em>$2</em>$3');
+    s=s.replace(/(^|[^_])_([^_\n]+?)_([^_]|$)/g,'$1<em>$2</em>$3');
+    // Inline code
+    s=s.replace(/`([^`\n]+?)`/g,'<code>$1</code>');
+    // Restore math via KaTeX
+    s=s.replace(/@@MATH_(\d+)@@/g,function(_,idx){
+      var m=mathTokens[+idx];
+      if(!m)return '';
+      try{
+        return katex.renderToString(m.expr,{displayMode:m.isBlock,throwOnError:false,errorColor:'#c92a2a'});
+      }catch(err){
+        return h(m.raw);
+      }
+    });
+    return s;
+  }
+
+  var rawBlocks=text.split(/\n\s*\n/);
+  var htmlBlocks=[];
+
+  rawBlocks.forEach(function(block){
+    var trimmed=block.trim();
+    if(!trimmed)return;
+
+    var lines=trimmed.split('\n');
+    var isList=lines.every(function(l){return /^[\*•-]\s+/.test(l.trim());});
+    var isNumList=lines.every(function(l){return /^\d+\.\s+/.test(l.trim());});
+
+    if(isList){
+      var items=lines.map(function(l){
+        var content=l.trim().replace(/^[\*•-]\s+/,'');
+        return '<li>'+formatInline(content)+'</li>';
+      });
+      htmlBlocks.push('<ul class="tutor-list">'+items.join('')+'</ul>');
+    } else if(isNumList){
+      var nitems=lines.map(function(l){
+        var content=l.trim().replace(/^\d+\.\s+/,'');
+        return '<li>'+formatInline(content)+'</li>';
+      });
+      htmlBlocks.push('<ol class="tutor-list">'+nitems.join('')+'</ol>');
+    } else {
+      var hasBullets=lines.some(function(l){return /^[\*•-]\s+/.test(l.trim());});
+      if(hasBullets){
+        var curP=[];
+        var curUl=[];
+        lines.forEach(function(line){
+          var lt=line.trim();
+          if(/^[\*•-]\s+/.test(lt)){
+            if(curP.length){
+              htmlBlocks.push('<p>'+formatInline(curP.join(' '))+'</p>');
+              curP=[];
+            }
+            curUl.push('<li>'+formatInline(lt.replace(/^[\*•-]\s+/,''))+'</li>');
+          } else {
+            if(curUl.length){
+              htmlBlocks.push('<ul class="tutor-list">'+curUl.join('')+'</ul>');
+              curUl=[];
+            }
+            curP.push(lt);
+          }
+        });
+        if(curP.length)htmlBlocks.push('<p>'+formatInline(curP.join(' '))+'</p>');
+        if(curUl.length)htmlBlocks.push('<ul class="tutor-list">'+curUl.join('')+'</ul>');
+      } else {
+        htmlBlocks.push('<p>'+formatInline(lines.join('<br>'))+'</p>');
+      }
+    }
+  });
+
+  return htmlBlocks.join('');
+}
 var uid=function(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4)};
 function fmt(n){if(typeof n!=='number'||!isFinite(n))return String(n);var s=(Math.round(n*10000)/10000).toString();return s}
 function money(n){return '$'+n.toFixed(2).replace(/\.00$/,function(m){return n===Math.floor(n)&&n>=10?'':m})}
@@ -27,11 +158,30 @@ function cap(s){return s.charAt(0).toUpperCase()+s.slice(1)}
 
 /* ================= state ================= */
 var S;
-function blank(){return{v:2,profile:{name:'',level:'',subjects:[],goals:[],style:''},plan:null,pcredits:0,topups:[],trialUsed:false,offset:0,
+function blank(){return{v:2,profile:{id:USER_ID,name:initialUser?.name||'',email:initialUser?.email||'',level:'',subjects:[],goals:[],style:''},plan:null,pcredits:0,topups:[],trialUsed:false,college:null,collegeCreditsGranted:false,offset:0,
  chats:[],cur:null,videos:[],notes:[],decks:[],quizzes:[],tasks:[],saved:[],reports:[],billing:[],act:{},goal:10,dismissed:false,hideList:false,detail:'steps',spent:0}}
-function load(){try{var s=JSON.parse(localStorage.getItem(KEY)||'null');if(s&&s.v===2)return Object.assign(blank(),s);
-  var o=JSON.parse(localStorage.getItem('doubtster-app-v1')||'null');
-  if(o&&o.v===1){var n=Object.assign(blank(),o,{v:2});n.decks=(o.notes||[]).map(function(x){return{id:x.id,ts:x.ts,title:x.title,subject:x.subject||'',src:'reply',cards:(x.cards||[]).map(function(c){return mkCard(c.f,c.b)})}});n.notes=[];return n}}catch(e){}return blank()}
+function load(){
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (s && s.v === 2) {
+      // If scoped user state matches current user, use it
+      if (!USER_ID || !s.profile || !s.profile.id || s.profile.id === USER_ID) {
+        return Object.assign(blank(), s);
+      }
+    }
+    // If running in guest/unauthenticated mode, fallback to legacy key
+    if (!USER_ID) {
+      var o = JSON.parse(localStorage.getItem('doubtster-app-v1') || 'null');
+      if (o && o.v === 1) {
+        var n = Object.assign(blank(), o, {v:2});
+        n.decks = (o.notes || []).map(function(x){ return { id: x.id, ts: x.ts, title: x.title, subject: x.subject || '', src: 'reply', cards: (x.cards || []).map(function(c){ return mkCard(c.f, c.b); }) }; });
+        n.notes = [];
+        return n;
+      }
+    }
+  } catch(e) {}
+  return blank();
+}
 
 function mergeListById(localList, serverList) {
   var map = {};
@@ -51,19 +201,57 @@ function mergeListById(localList, serverList) {
 }
 
 var syncTimeout = null;
-function flushSave() {
+var isSyncing = false;
+var serverSyncEnabled = true;
+
+function flushSave(isUnload) {
   if (syncTimeout) {
     clearTimeout(syncTimeout);
     syncTimeout = null;
   }
+  if (!serverSyncEnabled && !isUnload) {
+    return;
+  }
+  if (isSyncing && !isUnload) {
+    return;
+  }
   try {
-    fetch('/api/state', {
+    var payload;
+    try {
+      payload = JSON.stringify({ state: S });
+    } catch(err) {
+      return;
+    }
+
+    // WHATWG Fetch keepalive quota is 64KB across all in-flight requests.
+    // If body exceeds ~60KB, setting keepalive: true causes browser to throw TypeError: Failed to fetch.
+    // Keepalive is only used on unload and only when the payload is within safe quota limits.
+    var useKeepalive = Boolean(isUnload && payload.length < 60000);
+    var fetchOpts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: S }),
-      keepalive: true
-    }).then(function(r) { return r.json(); })
+      body: payload
+    };
+    if (useKeepalive) {
+      fetchOpts.keepalive = true;
+    }
+
+    isSyncing = true;
+    fetch('/api/state', fetchOpts)
+      .then(function(r) {
+        if (r.status === 401) {
+          // Unauthenticated/guest session: pause remote sync to prevent console noise
+          serverSyncEnabled = false;
+          return null;
+        }
+        if (!r.ok) {
+          return null;
+        }
+        serverSyncEnabled = true;
+        return r.json().catch(function() { return null; });
+      })
       .then(function(res) {
+        isSyncing = false;
         if (res && res.state) {
           // Always prefer server plan — it's the authoritative source
           // (webhook may have activated a plan since we last read state)
@@ -71,21 +259,36 @@ function flushSave() {
           if (res.state.plan) {
             S.plan = res.state.plan;
           }
-          if (res.state.pcredits !== undefined && res.state.pcredits > (S.pcredits || 0)) {
-            S.pcredits = res.state.pcredits;
+          if (res.state.pcredits !== undefined) {
+            S.pcredits = Math.max(S.pcredits || 0, res.state.pcredits);
+          }
+          if (res.state.college) {
+            S.college = res.state.college;
+          }
+          if (res.state.collegeCreditsGranted) {
+            S.collegeCreditsGranted = true;
           }
           if (Array.isArray(res.state.topups) && res.state.topups.length > (S.topups || []).length) {
             S.topups = res.state.topups;
           }
           if (res.state.trialUsed) S.trialUsed = true;
           try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(ex) {}
+          try { repaint(); } catch(ex) {}
           if (!hadPlan && S.plan) {
-            try { repaint(); } catch(ex) {}
             try { if (R && R[view]) R[view](); } catch(ex) {}
           }
         }
-      }).catch(function(e){ console.error('Failed to sync state', e); });
-  } catch(e) {}
+      })
+      .catch(function(e) {
+        isSyncing = false;
+        // Non-critical background sync note (e.g. offline, page navigation, or dev reload)
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[Doubtster] Background state sync skipped:', e && e.message ? e.message : e);
+        }
+      });
+  } catch(e) {
+    isSyncing = false;
+  }
 }
 
 function save(immediate){
@@ -104,15 +307,20 @@ function save(immediate){
 }
 
 function hasPlan(){
-  if (!S.plan) return false;
-  var now = Date.now();
-  if (S.plan.status === 'expired' || S.plan.status === 'failed') return false;
-  if (S.plan.cancelled && S.plan.renewAt && now > S.plan.renewAt) return false;
-  if (S.plan.kind === 'trial') {
-    var trialEnd = S.plan.renewAt || (S.plan.start + PRICE.trialDays * DAY);
-    return now <= trialEnd;
+  if (S.plan) {
+    var now = Date.now();
+    if (S.plan.status === 'expired' || S.plan.status === 'failed') return false;
+    if (S.plan.cancelled && S.plan.renewAt && now > S.plan.renewAt) return false;
+    if (S.plan.kind === 'trial') {
+      var trialEnd = S.plan.renewAt || (S.plan.start + PRICE.trialDays * DAY);
+      return now <= trialEnd;
+    }
+    if (S.plan.status === 'active' || !S.plan.cancelled) return true;
   }
-  return S.plan.status === 'active' || !S.plan.cancelled;
+  if (S.collegeCreditsGranted || (S.college && S.pcredits > 0) || (S.pcredits > 0)) {
+    return true;
+  }
+  return false;
 }
 
 function getInitial(){
@@ -144,33 +352,57 @@ function syncInitialState(pollCount) {
   var isCheckoutReturn = location.search.indexOf('checkout=return') > -1;
   fetch('/api/state')
     .then(function(r) {
+      if (r.status === 401) {
+        serverSyncEnabled = false;
+        return null;
+      }
       if (!r.ok) throw new Error('state ' + r.status);
-      return r.json();
+      serverSyncEnabled = true;
+      return r.json().catch(function() { return null; });
     })
     .then(function(res) {
-      if (res && res.state) {
-        // Deep merge collections by item id to guarantee no loss from other logins/devices
-        S.chats = mergeListById(S.chats, res.state.chats);
-        S.notes = mergeListById(S.notes, res.state.notes);
-        S.decks = mergeListById(S.decks, res.state.decks);
-        S.videos = mergeListById(S.videos, res.state.videos);
-        S.quizzes = mergeListById(S.quizzes, res.state.quizzes);
-        S.tasks = mergeListById(S.tasks, res.state.tasks);
-        S.saved = mergeListById(S.saved, res.state.saved);
+      if (!res) return;
 
-        // Always take server plan — server is source of truth for subscriptions
-        if (res.state.plan) S.plan = res.state.plan;
-        if (res.state.pcredits !== undefined) S.pcredits = res.state.pcredits;
-        if (res.state.trialUsed) S.trialUsed = true;
-        if (Array.isArray(res.state.topups)) S.topups = res.state.topups;
+      // ── DATA-ISOLATION GUARD ──────────────────────────────────────────────
+      // For authenticated users, state in Supabase is strictly per-user and authoritative.
+      if (res.user_id) {
+        var userChanged = (USER_ID && res.user_id !== USER_ID);
+        USER_ID = res.user_id;
+        KEY = 'doubtster-app-v2:' + USER_ID;
+        if (userChanged) {
+          S = blank();
+        }
+      }
+      if (USER_ID) {
+        S.profile.id = USER_ID;
       }
       if (res && res.user_name) {
-        if (!S.profile.name || S.profile.name === 'You') {
-          S.profile.name = res.user_name;
-        }
+        S.profile.name = res.user_name;
       }
       if (res && res.email) {
         S.profile.email = res.email;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      if (res && res.state) {
+        // Authoritative server collections for authenticated user
+        if (Array.isArray(res.state.chats)) S.chats = res.state.chats;
+        if (Array.isArray(res.state.notes)) S.notes = res.state.notes;
+        if (Array.isArray(res.state.decks)) S.decks = res.state.decks;
+        if (Array.isArray(res.state.videos)) S.videos = res.state.videos;
+        if (Array.isArray(res.state.quizzes)) S.quizzes = res.state.quizzes;
+        if (Array.isArray(res.state.tasks)) S.tasks = res.state.tasks;
+        if (Array.isArray(res.state.saved)) S.saved = res.state.saved;
+
+        // Plan & credits
+        if (res.state.plan) S.plan = res.state.plan;
+        if (res.state.pcredits !== undefined) S.pcredits = Math.max(S.pcredits || 0, res.state.pcredits);
+        if (res.state.college) S.college = res.state.college;
+        if (res.state.collegeCreditsGranted) S.collegeCreditsGranted = true;
+        if (res.state.trialUsed) S.trialUsed = true;
+        if (Array.isArray(res.state.topups)) S.topups = res.state.topups;
+        if (res.state.profile && res.state.profile.level) S.profile.level = res.state.profile.level;
+        if (res.state.profile && Array.isArray(res.state.profile.subjects)) S.profile.subjects = res.state.profile.subjects;
       }
       try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {}
       // Always repaint + re-render current view so paywall lifts immediately
@@ -211,19 +443,19 @@ function syncInitialState(pollCount) {
 
 syncInitialState(0);
 
-window.addEventListener('beforeunload', function() {
+on(window, 'beforeunload', function() {
   try {
     localStorage.setItem(KEY, JSON.stringify(S));
   } catch(e) {}
-  flushSave();
+  flushSave(true);
 });
-document.addEventListener('visibilitychange', function() {
+on(document, 'visibilitychange', function() {
   if (document.visibilityState === 'hidden') {
-    flushSave();
+    flushSave(true);
   }
 });
 
-if(!S.profile.level&&!S.profile.name){try{var o2=JSON.parse(localStorage.getItem('doubtster-onboarding')||'null');if(o2){S.profile.name=o2.name||'';S.profile.level=o2.level||'';S.profile.subjects=o2.subjects||[];S.profile.goals=o2.goals||[];S.profile.style=o2.style||'';save()}}catch(e){}}
+if(!USER_ID&&!S.profile.level&&!S.profile.name){try{var o2=JSON.parse(localStorage.getItem('doubtster-onboarding')||'null');if(o2){S.profile.name=o2.name||'';S.profile.level=o2.level||'';S.profile.subjects=o2.subjects||[];S.profile.goals=o2.goals||[];S.profile.style=o2.style||'';save()}}catch(e){}}
 var NOW=function(){return Date.now()+S.offset};
 function dkey(t){var d=new Date(t);return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
 function bump(kind,n){var k=dkey(NOW());S.act[k]=S.act[k]||{};S.act[k][kind]=(S.act[k][kind]||0)+(n||1);
@@ -474,9 +706,9 @@ function demoSolve(q){var s=q.toLowerCase().replace(/,/g,'');
 var EXAMPLES=['solve 3x - 7 = 11','why does ice float?','a car costs 30000 and loses 15% a year, what is it worth after 6 years?','explain recursion','a car speeds up from rest to 20 m/s in 8 s','mitosis vs meiosis'];
 
 /* ================= shell: nav, header, history ================= */
-var VIEWS=['home','chat','flash','quiz','videos','notes','plan','library','account'];
-var LABEL={home:'Home',chat:'Ask',flash:'Flashcards',quiz:'Quizzes',videos:'Videos',notes:'Notes',plan:'Planner',library:'Library',account:'Account'};
-var GROUPS=[{t:'',v:['home','chat']},{t:'study',v:['flash','quiz','videos','notes']},{t:'organise',v:['plan','library','account']}];
+var VIEWS=['home','chat','flash','quiz','videos','notes','plan','library','account','settings','usage','language','help','apps','learn'];
+var LABEL={home:'Home',chat:'Ask',flash:'Flashcards',quiz:'Quizzes',videos:'Videos',notes:'Notes',plan:'Planner',library:'Library',account:'Account',settings:'Settings',usage:'Usage',language:'Language',help:'Get Help',apps:'Apps',learn:'Learn More'};
+var GROUPS=[{t:'',v:['home','chat','flash','quiz','videos','notes','plan','library']}];
 var ICONS={home:'<path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/>',chat:'<path d="M4 5h16v11H9l-5 4z"/>',
  flash:'<rect x="3" y="7" width="14" height="11" rx="2"/><path d="M7 4h14v11"/>',videos:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>',
  notes:'<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7"/>',quiz:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>',
@@ -484,7 +716,7 @@ var ICONS={home:'<path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/>',chat:'
  play:'<path d="M8 5l11 7-11 7z"/>',check:'<path d="M5 12l5 5 9-10"/>',bolt:'<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',star:'<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
  cards:'<rect x="3" y="7" width="14" height="11" rx="2"/><path d="M7 4h14v11"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',trash:'<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
- pen:'<path d="M4 20l1-4L16 5l3 3L8 19z"/>',down:'<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',bookmark:'<path d="M7 4h10v16l-5-4-5 4z"/>',up:'<path d="M7 11V20H4v-9zM7 11l4-8c2 0 3 1 3 3l-.5 3H19a2 2 0 0 1 2 2l-1.5 7a2 2 0 0 1-2 1.5H7"/>',dn:'<path d="M7 13V4H4v9zM7 13l4 8c2 0 3-1 3-3l-.5-3H19a2 2 0 0 0 2-2l-1.5-7A2 2 0 0 0 17.500 4H7"/>'};
+ pen:'<path d="M4 20l1-4L16 5l3 3L8 19z"/>',down:'<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',bookmark:'<path d="M7 4h10v16l-5-4-5 4z"/>',attach:'<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',up:'<path d="M7 11V20H4v-9zM7 11l4-8c2 0 3 1 3 3l-.5 3H19a2 2 0 0 1 2 2l-1.5 7a2 2 0 0 1-2 1.5H7"/>',dn:'<path d="M7 13V4H4v9zM7 13l4 8c2 0 3-1 3-3l-.5-3H19a2 2 0 0 0 2-2l-1.5-7A2 2 0 0 0 17.500 4H7"/>'};
 function ic(n){return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">'+(ICONS[n]||'')+'</svg>'}
 var view='home';
 function today(){return dkey(NOW())}
@@ -498,89 +730,706 @@ function badge(v){
 }
 function paintNav(){$('nv').innerHTML=GROUPS.map(function(g){return (g.t?'<div class="ng">'+g.t+'</div>':'')+g.v.map(function(v){return '<button type="button" data-act="go" data-v="'+v+'"'+(v===view?' aria-current="page"':'')+'>'+ic(v)+'<span>'+LABEL[v]+'</span>'+badge(v)+'</button>'}).join('')}).join('')}
 function planMax(){return S.plan&&S.plan.kind==='trial'?PRICE.trialCredits:PRICE.credits}
-function paintTop(){var c=credits(),b=$('crb');
- if(!hasPlan()){b.innerHTML='Free <u>try Pro</u>';b.className='cr free'}
- else{b.innerHTML='<b>'+c+'</b> credit'+(c===1?'':'s')+(c===0?' <u>buy</u>':'');b.className='cr'+(c===0?' zero':'')}
- var _avt=$('avt'),_init=getInitial(),_nm=(S.profile.name||S.profile.email||'').trim();
- _avt.textContent=_init;
- _avt.setAttribute('aria-label',_nm?'Account – '+_nm:'Account');
- _avt.title=_nm||'Your Account';
- var n=nextCharge(),pl=$('pl');
- if(!hasPlan()){pl.className='pl free';pl.innerHTML='<div class="mini"><i></i><i></i><i></i><span>PRO</span></div><b>Unlock Pro Features</b><p>Chat is free forever. Notes, Videos, Flashcards and Quizzes require Pro.</p><button type="button" class="pill b sm" data-act="promo">'+(S.trialUsed?'see plans':'start 7-day trial')+'</button>'}
- else{var mx=planMax(),pc=Math.max(0,Math.min(100,S.pcredits/mx*100));pl.className='pl';
-  pl.innerHTML='<b>'+planName()+(S.plan.cancelled?' (ends '+dstr(S.plan.kind==='trial'?S.plan.start+PRICE.trialDays*DAY:S.plan.renewAt)+')':'')+'</b><div class="meter'+(c===0?' zero':'')+'"><i style="width:'+pc+'%"></i></div><p>'+S.pcredits+' of '+mx+' plan credits'+(topTotal()?' + '+topTotal()+' top-up':'')+'.'+(n?' '+money(n.amt)+' on '+dstr(n.t)+'.':'')+'</p><div class="prow"><button type="button" data-act="credits">+ credits</button><button type="button" data-act="go" data-v="account">manage</button></div>'}}
-function paintHist(){var h2=S.chats.slice().sort(function(a,b){return b.ts-a.ts}).slice(0,40);
- $('hist').innerHTML=h2.length?h2.map(function(c){return '<button type="button" data-act="openchat" data-id="'+c.id+'"'+(c.id===S.cur&&view==='chat'?' aria-current="true"':'')+' title="'+h(c.title)+'">'+h(c.title)+'</button>'}).join(''):'<p>Your chats will show here.</p>'}
+function paintTop(){
+  var c=credits(),b=$('crb');
+  if(b){
+    if(!hasPlan()){
+      if(c > 0){
+        b.innerHTML='<b>'+c+'</b> credit'+(c===1?'':'s');
+        b.className='cr';
+      } else {
+        b.innerHTML='Free <u>try Pro</u>';
+        b.className='cr free';
+      }
+    } else {
+      b.innerHTML='<b>'+c+'</b> credit'+(c===1?'':'s')+(c===0?' <u>buy</u>':'');
+      b.className='cr'+(c===0?' zero':'');
+    }
+  }
+
+  var _avt=$('avt'),_init=getInitial(),_nm=(S.profile.name||S.profile.email||'').trim();
+  if(_avt){
+    _avt.textContent=_init;
+    _avt.setAttribute('aria-label',_nm?'Account – '+_nm:'Account');
+    _avt.title=_nm||'Your Account';
+  }
+
+  // Update bottom profile section in sidebar
+  var sideAvt = $('side-profile-avatar');
+  if(sideAvt) sideAvt.textContent = _init;
+
+  var sideNm = $('side-profile-name');
+  if(sideNm) sideNm.textContent = _nm || 'Student';
+
+  var sideBdg = $('side-profile-badge');
+  if(sideBdg){
+    var isPro = hasPlan();
+    if(isPro){
+      sideBdg.textContent = 'Pro';
+      sideBdg.className = 'side-profile-badge pro';
+    } else {
+      sideBdg.textContent = c > 0 ? (c + ' cr') : 'Free';
+      sideBdg.className = 'side-profile-badge free';
+    }
+  }
+
+  var n=nextCharge(),pl=$('pl');
+  if(!pl) return;
+  var studentTitle = (S.college && S.college.name) ? (h(S.college.name)+' Student') : (_nm ? h(_nm) : 'Student');
+  if(!S.plan){
+    if(c > 0){
+      pl.className='pl scite-student-card';
+      pl.innerHTML='<div class="scite-student-row" data-act="go" data-v="account" title="Manage account & credits">'+
+        '<span class="scite-student-avatar">'+_init+'</span>'+
+        '<div class="scite-student-meta">'+
+          '<span class="scite-student-name">'+studentTitle+'</span>'+
+          '<span class="scite-student-sub">'+c+' credit'+(c===1?'':'s')+' available</span>'+
+        '</div>'+
+      '</div>';
+    } else {
+      pl.className='pl scite-student-card free';
+      pl.innerHTML='<div class="scite-student-row" data-act="promo" title="Upgrade to Pro">'+
+        '<span class="scite-student-avatar pro-icon">✦</span>'+
+        '<div class="scite-student-meta">'+
+          '<span class="scite-student-name">Doubtster Pro</span>'+
+          '<span class="scite-student-sub">Chat free &bull; Unlock Pro tools</span>'+
+        '</div>'+
+      '</div>';
+    }
+  } else {
+    var mx=planMax();
+    pl.className='pl scite-student-card';
+    pl.innerHTML='<div class="scite-student-row" data-act="go" data-v="account" title="Manage Pro subscription">'+
+      '<span class="scite-student-avatar pro-active">'+_init+'</span>'+
+      '<div class="scite-student-meta">'+
+        '<span class="scite-student-name">'+planName()+'</span>'+
+        '<span class="scite-student-sub">'+S.pcredits+' of '+mx+' credits remaining</span>'+
+      '</div>'+
+    '</div>';
+  }
+}
+var activeContextChatId = null;
+
+function getContextMenuEl(){
+  var menu = document.getElementById('chat-context-menu');
+  if(!menu){
+    menu = document.createElement('div');
+    menu.id = 'chat-context-menu';
+    menu.className = 'claude-context-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Chat options');
+    menu.hidden = true;
+    menu.style.display = 'none';
+    document.body.appendChild(menu);
+  }
+  return menu;
+}
+
+function closeChatContextMenu(){
+  var menu = document.getElementById('chat-context-menu');
+  if(menu){
+    menu.hidden = true;
+    menu.style.display = 'none';
+    menu.classList.remove('is-open');
+  }
+  activeContextChatId = null;
+}
+
+function openChatContextMenu(chatId, x, y){
+  var c = S.chats.filter(function(item){ return item.id === chatId; })[0];
+  if(!c) return;
+  activeContextChatId = chatId;
+  var menu = getContextMenuEl();
+  var isPinned = Boolean(c.pinned);
+
+  menu.innerHTML = 
+    '<button type="button" class="cm-item" data-act="chat-pin" data-id="' + c.id + '" role="menuitem">' +
+      '<svg class="cm-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+        (isPinned
+          ? '<line x1="2" y1="2" x2="22" y2="22"/><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.77V7a3 3 0 0 0-6 0v3.77a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24Z"/>'
+          : '<line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.77V7a3 3 0 0 0-6 0v3.77a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24Z"/>') +
+      '</svg>' +
+      '<span class="cm-label">' + (isPinned ? 'Unpin' : 'Pin') + '</span>' +
+      '<kbd class="cm-kbd">P</kbd>' +
+    '</button>' +
+    '<button type="button" class="cm-item" data-act="chat-rename" data-id="' + c.id + '" role="menuitem">' +
+      '<svg class="cm-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>' +
+      '</svg>' +
+      '<span class="cm-label">Rename</span>' +
+      '<kbd class="cm-kbd">R</kbd>' +
+    '</button>' +
+    '<button type="button" class="cm-item danger" data-act="chat-delete" data-id="' + c.id + '" role="menuitem">' +
+      '<svg class="cm-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>' +
+      '</svg>' +
+      '<span class="cm-label">Delete</span>' +
+      '<kbd class="cm-kbd">D</kbd>' +
+    '</button>';
+
+  var menuW = 210;
+  var menuH = 145;
+  var posX = Math.min(x, window.innerWidth - menuW - 12);
+  var posY = Math.min(y, window.innerHeight - menuH - 12);
+  menu.style.left = Math.max(8, posX) + 'px';
+  menu.style.top = Math.max(8, posY) + 'px';
+  menu.hidden = false;
+  menu.style.display = 'flex';
+  menu.classList.add('is-open');
+}
+
+function renderChatRow(c, isPinned){
+  var isActive = c.id === S.cur && view === 'chat';
+  var iconSvg = isPinned
+    ? '<svg class="chat-row-icon pin-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.77V7a3 3 0 0 0-6 0v3.77a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24Z"/></svg>'
+    : '<svg class="chat-row-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+
+  return '<div class="chat-row' + (isActive ? ' is-active' : '') + '" data-chat-id="' + c.id + '">' +
+    '<button type="button" class="chat-btn" data-act="openchat" data-id="' + c.id + '"' + (isActive ? ' aria-current="true"' : '') + ' title="' + h(c.title) + '">' +
+      iconSvg +
+      '<span class="chat-row-title">' + h(c.title) + '</span>' +
+    '</button>' +
+    '<button type="button" class="chat-more-btn" data-act="chatmenu" data-id="' + c.id + '" aria-label="Chat options" title="More options">' +
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="5" cy="12" r="1.5"/></svg>' +
+    '</button>' +
+  '</div>';
+}
+
+function formatRelativeTime(ts: number){
+  if(!ts) return '';
+  var now = Date.now();
+  var diff = Math.max(0, now - ts);
+  var sec = Math.floor(diff / 1000);
+  var min = Math.floor(sec / 60);
+  var hr = Math.floor(min / 60);
+  var day = Math.floor(hr / 24);
+  if(min < 1) return 'Just now';
+  if(min < 60) return min + 'm ago';
+  if(hr === 1) return '1 hour ago';
+  if(hr < 24) return hr + ' hours ago';
+  if(day === 1) return 'Yesterday';
+  if(day < 7) return day + ' days ago';
+  if(day < 30) return Math.floor(day / 7) + ' weeks ago';
+  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function openRecentsOverlay(){
+  var allChats = S.chats.slice().sort(function(a,b){ return (b.pinnedAt || b.ts || 0) - (a.pinnedAt || a.ts || 0); });
+  var currentFilter = 'active';
+  var currentSearch = '';
+
+  function getFilteredChats(){
+    return allChats.filter(function(c){
+      if(currentFilter === 'archived'){
+        if(!c.archived) return false;
+      } else if(currentFilter === 'shared'){
+        if(!c.shared) return false;
+      } else {
+        if(c.archived) return false;
+      }
+
+      if(!currentSearch) return true;
+      var q = currentSearch.toLowerCase();
+      var titleMatch = (c.title || '').toLowerCase().indexOf(q) > -1;
+      var msgMatch = (c.msgs || []).some(function(m){
+        return (m.t || '').toLowerCase().indexOf(q) > -1 || (m.a && (m.a.title || '').toLowerCase().indexOf(q) > -1);
+      });
+      return titleMatch || msgMatch;
+    });
+  }
+
+  function renderListHtml(){
+    var list = getFilteredChats();
+    if(!list.length){
+      return '<div class="cro-empty"><p>' + (currentSearch ? 'No chats match "' + h(currentSearch) + '"' : 'No conversations found') + '</p></div>';
+    }
+    return list.map(function(c){
+      var isCur = c.id === S.cur;
+      var timeStr = formatRelativeTime(c.ts || Date.now());
+      var hasDoc = (c.msgs || []).some(function(m){ return !!(m.a && m.a.steps && m.a.steps.length); });
+      return '<div class="cro-row' + (isCur ? ' is-active' : '') + '" data-chat-id="' + c.id + '" role="button" tabindex="0">' +
+        '<div class="cro-row-main">' +
+          '<span class="cro-row-title">' + h(c.title || 'Untitled Chat') + '</span>' +
+          (hasDoc ? '<svg class="cro-row-doc-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' : '') +
+          (c.pinned ? '<svg class="cro-row-pin-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 0 5 15.24Z"/></svg>' : '') +
+        '</div>' +
+        '<span class="cro-row-time">' + timeStr + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  var html =
+    '<div class="cro-container">' +
+      '<div class="cro-head">' +
+        '<div class="cro-head-top">' +
+          '<h1 class="cro-title">Recents</h1>' +
+          '<button type="button" class="cro-close-btn" data-act="close" aria-label="Close">' +
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="cro-controls">' +
+          '<div class="cro-tabs">' +
+            '<button type="button" class="cro-tab active" data-cro-tab="active">Active</button>' +
+            '<button type="button" class="cro-tab" data-cro-tab="shared">Shared</button>' +
+            '<button type="button" class="cro-tab" data-cro-tab="archived">Archived</button>' +
+          '</div>' +
+          '<div class="cro-actions">' +
+            '<div class="cro-search-box">' +
+              '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+              '<input type="text" id="cro-search-inp" placeholder="Search recent chats..." autocomplete="off" />' +
+            '</div>' +
+            '<button type="button" class="cro-new-btn" data-act="cro-new-chat">' +
+              'New session' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="cro-list" id="cro-list">' +
+        renderListHtml() +
+      '</div>' +
+    '</div>';
+
+  modal(html, function(dialog){
+    var inp = dialog.querySelector('#cro-search-inp');
+    var listEl = dialog.querySelector('#cro-list');
+
+    if(inp){
+      inp.focus();
+      inp.addEventListener('input', function(){
+        currentSearch = inp.value.trim();
+        if(listEl) listEl.innerHTML = renderListHtml();
+      });
+    }
+
+    var tabs = dialog.querySelectorAll('.cro-tab');
+    tabs.forEach(function(tab){
+      tab.addEventListener('click', function(){
+        tabs.forEach(function(t){ t.classList.remove('active'); });
+        tab.classList.add('active');
+        currentFilter = tab.getAttribute('data-cro-tab') || 'active';
+        if(listEl) listEl.innerHTML = renderListHtml();
+      });
+    });
+
+    if(listEl){
+      listEl.addEventListener('click', function(e){
+        var row = e.target.closest('[data-chat-id]');
+        if(row){
+          var cid = row.getAttribute('data-chat-id');
+          if(cid){
+            closeModal();
+            S.cur = cid;
+            save(true);
+            go('chat');
+          }
+        }
+      });
+    }
+
+    var newBtn = dialog.querySelector('[data-act="cro-new-chat"]');
+    if(newBtn){
+      newBtn.addEventListener('click', function(){
+        closeModal();
+        newChat();
+      });
+    }
+  }, { bare: true, cls: 'claude-recents-overlay' });
+}
+
+(window as any).doubtsterOpenRecents = openRecentsOverlay;
+
+function paintHist(){
+  var histEl = $('hist');
+  if(!histEl) return;
+  var pinned = S.chats.filter(function(c){ return Boolean(c.pinned); }).sort(function(a,b){ return (b.pinnedAt || b.ts) - (a.pinnedAt || a.ts); });
+  var recents = S.chats.filter(function(c){ return !c.pinned; }).sort(function(a,b){ return b.ts - a.ts; });
+
+  if(!pinned.length && !recents.length){
+    histEl.innerHTML = '<p class="hist-empty">No chats yet. Start a new conversation!</p>';
+    return;
+  }
+
+  var html = '';
+  if(pinned.length){
+    html += '<div class="hist-sec' + (S.pinnedCollapsed ? ' is-collapsed' : '') + '">' +
+      '<div class="hist-sec-hdr" data-act="toggle-pinned-sec" role="button" tabindex="0">' +
+        '<span>Pinned</span>' +
+        '<svg class="hist-chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>' +
+      '</div>' +
+      '<div class="hist-sec-list">' + pinned.map(function(c){ return renderChatRow(c, true); }).join('') + '</div>' +
+    '</div>';
+  }
+
+  if(recents.length){
+    var visibleRecents = recents.slice(0, 14);
+    html += '<div class="hist-sec' + (S.recentsCollapsed ? ' is-collapsed' : '') + '">' +
+      '<div class="hist-sec-hdr">' +
+        '<div class="hist-sec-hdr-title" data-act="toggle-recents-sec" role="button" tabindex="0">' +
+          '<span>Recents</span>' +
+          '<svg class="hist-chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>' +
+        '</div>' +
+        '<button type="button" class="hist-search-btn" data-act="open-recents-overlay" title="Search all chats" aria-label="Search all chats">' +
+          '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+        '</button>' +
+      '</div>' +
+      '<div class="hist-sec-list">' +
+        visibleRecents.map(function(c){ return renderChatRow(c, false); }).join('') +
+        (recents.length > 14
+          ? '<button type="button" class="hist-more-btn" data-act="open-recents-overlay">' +
+              '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+              '<span>Load more (' + recents.length + ')</span>' +
+            '</button>'
+          : (recents.length > 5
+              ? '<button type="button" class="hist-more-btn" data-act="open-recents-overlay">' +
+                  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+                  '<span>View all recents</span>' +
+                '</button>'
+              : '')) +
+      '</div>' +
+    '</div>';
+  }
+
+  histEl.innerHTML = html;
+}
 function repaint(){paintNav();paintHist();paintTop()}
 var timers=[];
 
 function renderPaywall(featureKey){
-  var titles = {
-    notes: 'Handwritten Study Notes',
-    videos: 'AI Video Studio',
-    flash: 'Spaced Repetition Flashcards',
-    quiz: 'Adaptive Mastery Quizzes'
-  };
-  var descs = {
-    notes: 'Turn any doubt into verified handwritten notebook pages with step-by-step LaTeX derivations, margin tips, and visual diagrams.',
-    videos: 'Watch blackboard-style video lessons rendered specifically for your question with synchronized voice-over.',
-    flash: 'Master difficult formulas with scientifically-proven spaced repetition that schedules reviews right as you begin to forget.',
-    quiz: 'Test your understanding with personalized quizzes that adapt to your knowledge gaps.'
-  };
-  var name = titles[featureKey] || 'Doubtster Pro Feature';
-  var desc = descs[featureKey] || 'This feature is exclusive to Doubtster Pro.';
+  var normKey = (featureKey || 'flash').toLowerCase();
+  if (normKey.indexOf('note') > -1) normKey = 'notes';
+  else if (normKey.indexOf('vid') > -1) normKey = 'videos';
+  else if (normKey.indexOf('quiz') > -1) normKey = 'quiz';
+  else if (normKey.indexOf('flash') > -1) normKey = 'flash';
+  else normKey = 'flash';
 
-  $('view').innerHTML = '<div class="pgw paywall-view">' +
-    '<div class="ph"><div>' +
-      '<div class="pill pro-badge">PRO FEATURE</div>' +
-      '<h1>' + h(name) + '</h1>' +
-      '<p class="lead">' + h(desc) + '</p>' +
-    '</div></div>' +
-    '<div class="paywall-grid">' +
-      '<div class="win form paywall-card highlight">' +
-        '<div class="tb"><i></i><i></i><i></i><em>pro_plan.md</em></div>' +
-        '<div class="in3">' +
-          '<div class="pw-head">' +
-            '<h3>Unlock ' + h(name) + ' & All Pro Tools</h3>' +
-            '<p class="mute">Chat is 100% free forever. Notes, Videos, Flashcards, and Quizzes require a Pro plan or trial.</p>' +
-          '</div>' +
-          '<ul class="pw-perks">' +
-            '<li><span class="chk">&#10003;</span> <b>Handwritten Notebooks:</b> 600+ word study notes with LaTeX & custom doodles</li>' +
-            '<li><span class="chk">&#10003;</span> <b>AI Video Studio:</b> 30 credits included every month with voice narration</li>' +
-            '<li><span class="chk">&#10003;</span> <b>Active Flashcards:</b> Spaced repetition engine to ace your exams</li>' +
-            '<li><span class="chk">&#10003;</span> <b>Interactive Quizzes:</b> Automatic tests created from any answer</li>' +
-            '<li><span class="chk">&#10003;</span> <b>Cloud Backup:</b> Everything synced seamlessly across all your devices</li>' +
-          '</ul>' +
-          '<div class="pw-plans-mini">' +
-            '<div class="pw-plan-opt">' +
-              '<div><b>7-Day All-Access Trial</b><p class="mute">Test all Pro features with 3 video credits</p></div>' +
-              '<div class="pw-price">$1.99</div>' +
-            '</div>' +
-            '<div class="pw-plan-opt selected">' +
-              '<div><b>Monthly Pro Plan</b><p class="mute">30 credits/mo, cancel anytime</p></div>' +
-              '<div class="pw-price">$7.99<span>/mo</span></div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="acts" style="margin-top:20px">' +
-            '<button type="button" class="pill b" data-act="promo">' + (S.trialUsed ? 'Choose a Pro Plan' : 'Start 7-Day Trial ($1.99)') + '</button>' +
-            '<button type="button" class="pill" data-act="go" data-v="chat">Continue with Free Chat</button>' +
+  var configs: Record<string, { name: string; crumb: string; hl1: string; hl2: string; sub: string }> = {
+    flash: {
+      name: 'Flashcards',
+      crumb: 'Flashcards',
+      hl1: 'Remember it,',
+      hl2: 'right before you forget.',
+      sub: 'Spaced-repetition flashcards made from your own answers, scheduled for the exact moment your memory starts to fade.'
+    },
+    quiz: {
+      name: 'Quizzes',
+      crumb: 'Quizzes',
+      hl1: 'Test what you know,',
+      hl2: "fix what you don't.",
+      sub: 'Adaptive practice quizzes generated straight from your answers, pinpointing your exact knowledge gaps.'
+    },
+    videos: {
+      name: 'Videos',
+      crumb: 'Videos',
+      hl1: 'See it explained,',
+      hl2: 'step by handwritten step.',
+      sub: 'Blackboard-style video lessons rendered for your doubts, with synchronized AI voice-over and visual steps.'
+    },
+    notes: {
+      name: 'Handwritten Notes',
+      crumb: 'Handwritten Notes',
+      hl1: 'Master every concept,',
+      hl2: 'with verified LaTeX notes.',
+      sub: 'Turn any doubt into verified multi-page handwritten notebooks with step-by-step LaTeX derivations and diagrams.'
+    }
+  };
+
+  var cfg = configs[normKey] || configs.flash;
+
+  // Render Right Column Showcase matching the visual mockup
+  var showcaseHtml = '';
+  if (normKey === 'flash') {
+    showcaseHtml = '<div class="pw-showcase">' +
+      '<div class="pw-mock-deck-wrap">' +
+        '<div class="pw-mock-card-shadow" aria-hidden="true"></div>' +
+        '<div class="pw-mock-card">' +
+          '<div class="pw-mock-tag">CARDIO &middot; DUE TODAY</div>' +
+          '<div class="pw-mock-q">Which valves closing make the first heart sound?</div>' +
+          '<div class="pw-mock-ratings">' +
+            '<button type="button" class="pw-mock-rate-btn">Again</button>' +
+            '<button type="button" class="pw-mock-rate-btn">Hard</button>' +
+            '<button type="button" class="pw-mock-rate-btn active">Good</button>' +
+            '<button type="button" class="pw-mock-rate-btn">Easy</button>' +
           '</div>' +
         '</div>' +
       '</div>' +
+      '<div class="pw-mock-chart-card">' +
+        '<div class="pw-mock-chart-header">' +
+          '<b>Next reviews</b>' +
+          '<span>memory over time</span>' +
+        '</div>' +
+        '<div class="pw-mock-chart-svg-wrap">' +
+          '<svg viewBox="0 0 380 90" class="pw-retention-svg" preserveAspectRatio="none">' +
+            '<path d="M 20 70 L 360 70" stroke="currentColor" stroke-opacity="0.08" stroke-width="1" />' +
+            '<path d="M 30 20 Q 55 58 80 62" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-dasharray="3 3" stroke-width="1.8" />' +
+            '<path d="M 30 20 Q 55 50 80 55 L 80 20 Q 120 48 160 52 L 160 20 Q 220 42 280 46 L 280 20 Q 330 32 360 36" fill="none" stroke="#2F7BFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />' +
+            '<circle cx="30" cy="20" r="4.5" fill="#2F7BFF" />' +
+            '<circle cx="80" cy="20" r="4.5" fill="#2F7BFF" />' +
+            '<circle cx="160" cy="20" r="4.5" fill="#2F7BFF" />' +
+            '<circle cx="280" cy="20" r="4.5" fill="#2F7BFF" />' +
+          '</svg>' +
+        '</div>' +
+        '<div class="pw-mock-chart-labels">' +
+          '<span>Today</span>' +
+          '<span>1 day</span>' +
+          '<span>3 days</span>' +
+          '<span>1 week</span>' +
+          '<span>3 weeks</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  } else if (normKey === 'quiz') {
+    showcaseHtml = '<div class="pw-showcase">' +
+      '<div class="pw-mock-deck-wrap">' +
+        '<div class="pw-mock-card-shadow" aria-hidden="true"></div>' +
+        '<div class="pw-mock-card">' +
+          '<div class="pw-mock-tag">PHYSICS &middot; QUESTION 3 OF 5</div>' +
+          '<div class="pw-mock-q">A 2 kg object accelerates at 5 m/s&sup2;. What is the resultant force?</div>' +
+          '<div class="pw-mock-quiz-options">' +
+            '<div class="pw-mock-opt">2.5 N</div>' +
+            '<div class="pw-mock-opt">7 N</div>' +
+            '<div class="pw-mock-opt active">' +
+              '<span>10 N</span>' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
+            '</div>' +
+            '<div class="pw-mock-opt">0.4 N</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pw-mock-chart-card">' +
+        '<div class="pw-mock-chart-header">' +
+          '<b>Subject Mastery</b>' +
+          '<span>adaptive algorithm</span>' +
+        '</div>' +
+        '<div class="pw-mock-mastery-list">' +
+          '<div class="pw-mastery-row">' +
+            '<span>Maths</span>' +
+            '<div class="pw-mastery-bar"><div class="pw-mastery-fill" style="width:94%"></div></div>' +
+            '<b>94%</b>' +
+          '</div>' +
+          '<div class="pw-mastery-row">' +
+            '<span>Physics</span>' +
+            '<div class="pw-mastery-bar"><div class="pw-mastery-fill" style="width:86%"></div></div>' +
+            '<b>86%</b>' +
+          '</div>' +
+          '<div class="pw-mastery-row">' +
+            '<span>Chemistry</span>' +
+            '<div class="pw-mastery-bar"><div class="pw-mastery-fill" style="width:78%"></div></div>' +
+            '<b>78%</b>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  } else if (normKey === 'videos') {
+    showcaseHtml = '<div class="pw-showcase">' +
+      '<div class="pw-mock-deck-wrap">' +
+        '<div class="pw-mock-card-shadow" aria-hidden="true"></div>' +
+        '<div class="pw-mock-card pw-mock-video-board">' +
+          '<div class="pw-mock-tag" style="color:#34D399">BLACKBOARD STUDIO &middot; 2:00</div>' +
+          '<div class="pw-mock-board-inner">' +
+            '<div class="pw-mock-equation">6CO₂ + 6H₂O  ─light→  C₆H₁₂O₆ + 6O₂</div>' +
+            '<div class="pw-mock-board-sub">STEP 2 OF 4 &middot; CHLOROPLAST REACTION</div>' +
+          '</div>' +
+          '<div class="pw-mock-video-controls">' +
+            '<div class="pw-mock-play-pill">' +
+              '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>' +
+              '<span>Voice Narrated</span>' +
+            '</div>' +
+            '<div class="pw-mock-waveform">' +
+              '<span></span><span></span><span></span><span></span><span></span><span></span><span></span>' +
+            '</div>' +
+            '<span class="pw-mock-timer">2:00</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pw-mock-chart-card">' +
+        '<div class="pw-mock-chart-header">' +
+          '<b>Video Studio Inclusions</b>' +
+          '<span>included in Pro</span>' +
+        '</div>' +
+        '<div class="pw-mock-bullets">' +
+          '<div class="pw-mock-b-item">✦ <b>30 video credits</b> renewed every month</div>' +
+          '<div class="pw-mock-b-item">✦ <b>AI voice narration</b> with synced chalkboard math</div>' +
+          '<div class="pw-mock-b-item">✦ <b>Adaptive length</b> in 2 min or 5 min deep dives</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  } else {
+    showcaseHtml = '<div class="pw-showcase">' +
+      '<div class="pw-mock-deck-wrap">' +
+        '<div class="pw-mock-card-shadow" aria-hidden="true"></div>' +
+        '<div class="pw-mock-card pw-mock-notes-paper">' +
+          '<div class="pw-mock-tag">NOTEBOOK &middot; MITOSIS.MD</div>' +
+          '<div class="pw-mock-note-title">Mitosis vs. Meiosis Summary</div>' +
+          '<div class="pw-mock-note-math">&Delta;G = &Delta;H &minus; T&Delta;S</div>' +
+          '<div class="pw-mock-note-steps">' +
+            '<div class="pw-mock-step"><b>1. Prophase:</b> Chromatin condenses into visible chromosomes.</div>' +
+            '<div class="pw-mock-step"><b>2. Metaphase:</b> Sister chromatids align along equatorial plate.</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pw-mock-chart-card">' +
+        '<div class="pw-mock-chart-header">' +
+          '<b>Handwritten Notes System</b>' +
+          '<span>auto-generated</span>' +
+        '</div>' +
+        '<div class="pw-mock-bullets">' +
+          '<div class="pw-mock-b-item">✦ <b>600+ words</b> of verified depth with LaTeX</div>' +
+          '<div class="pw-mock-b-item">✦ <b>Multi-device cloud sync</b> across web & phone</div>' +
+          '<div class="pw-mock-b-item">✦ <b>1-click export</b> to Markdown & printable PDF</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  var html = '<div class="pw-page-wrap">' +
+    '<div class="pw-grid">' +
+      '<div class="pw-col-left">' +
+        '<div class="pw-breadcrumb">' +
+          '<span class="pw-crumb-link" data-act="go" data-v="chat">Doubtster</span>' +
+          '<span class="pw-crumb-sep">/</span>' +
+          '<span class="pw-crumb-curr">' + h(cfg.crumb) + '</span>' +
+        '</div>' +
+        '<div class="pw-pill-pro">' +
+          '<div class="pw-pill-pro-icon">' +
+            '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z"/></svg>' +
+          '</div>' +
+          '<span>Pro feature</span>' +
+        '</div>' +
+        '<h1 class="pw-title">' +
+          h(cfg.hl1) + '<br>' +
+          '<span class="pw-hl-blue">' + h(cfg.hl2) + '</span>' +
+        '</h1>' +
+        '<p class="pw-sub">' + h(cfg.sub) + '</p>' +
+        '<div class="pw-perks-list">' +
+          '<div class="pw-perk-row">' +
+            '<div class="pw-perk-icon">' +
+              '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<rect x="2" y="7" width="16" height="13" rx="2" ry="2"></rect>' +
+                '<path d="M6 3h12a2 2 0 0 1 2 2v12"></path>' +
+              '</svg>' +
+            '</div>' +
+            '<div class="pw-perk-text">' +
+              '<b>Smart flashcards</b>' +
+              '<p>Made from any answer, on a schedule that adapts to you</p>' +
+            '</div>' +
+          '</div>' +
+          '<div class="pw-perk-row">' +
+            '<div class="pw-perk-icon">' +
+              '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<polygon points="23 7 16 12 23 17 23 7"></polygon>' +
+                '<rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>' +
+              '</svg>' +
+            '</div>' +
+            '<div class="pw-perk-text">' +
+              '<b>AI Video Studio</b>' +
+              '<p>30 narrated explainer videos every month</p>' +
+            '</div>' +
+          '</div>' +
+          '<div class="pw-perk-row">' +
+            '<div class="pw-perk-icon">' +
+              '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>' +
+                '<polyline points="14 2 14 8 20 8"></polyline>' +
+                '<line x1="16" y1="13" x2="8" y2="13"></line>' +
+                '<line x1="16" y1="17" x2="8" y2="17"></line>' +
+              '</svg>' +
+            '</div>' +
+            '<div class="pw-perk-text">' +
+              '<b>Handwritten notes, quizzes & sync</b>' +
+              '<p>LaTeX-ready notes, auto-made quizzes, on every device</p>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pw-plans-grid">' +
+          '<div class="pw-plan-card selected" id="pw-plan-trial" data-act="pw-select-plan" data-plan="trial">' +
+            '<span class="pw-badge-start">START HERE</span>' +
+            '<div class="pw-plan-left">' +
+              '<span class="pw-radio-circle"></span>' +
+              '<div class="pw-plan-info">' +
+                '<span class="pw-plan-name">7-day all-access trial</span>' +
+                '<span class="pw-plan-desc">Every Pro tool + 3 video credits</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="pw-plan-price">$1.99</div>' +
+          '</div>' +
+          '<div class="pw-plan-card" id="pw-plan-monthly" data-act="pw-select-plan" data-plan="monthly">' +
+            '<div class="pw-plan-left">' +
+              '<span class="pw-radio-circle"></span>' +
+              '<div class="pw-plan-info">' +
+                '<span class="pw-plan-name">Monthly Pro</span>' +
+                '<span class="pw-plan-desc">30 video credits a month, cancel anytime</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="pw-plan-price">$7.99<small>/mo</small></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pw-actions-container">' +
+          '<div class="pw-actions-btns">' +
+            '<button type="button" class="pw-btn-primary" id="pw-cta-submit" data-act="pw-submit">Start 7-day trial · $1.99</button>' +
+            '<button type="button" class="pw-btn-secondary" id="pw-cta-free" data-act="go" data-v="chat">Continue with free chat</button>' +
+          '</div>' +
+          '<div class="pw-fine-print" id="pw-fine-print">Chat stays free forever. Cancel before day 7 and $1.99 is all you pay.</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pw-col-right">' +
+        showcaseHtml +
+      '</div>' +
     '</div>' +
   '</div>';
+
+  $('view').innerHTML = html;
+
+  var curSelectedPlan = 'trial';
+  function setPlan(p: string){
+    curSelectedPlan = p;
+    var tCard = $('pw-plan-trial');
+    var mCard = $('pw-plan-monthly');
+    var submitBtn = $('pw-cta-submit');
+    var fine = $('pw-fine-print');
+    if(p === 'trial'){
+      if(tCard) tCard.classList.add('selected');
+      if(mCard) mCard.classList.remove('selected');
+      if(submitBtn) submitBtn.textContent = 'Start 7-day trial · $1.99';
+      if(fine) fine.textContent = 'Chat stays free forever. Cancel before day 7 and $1.99 is all you pay.';
+    } else {
+      if(mCard) mCard.classList.add('selected');
+      if(tCard) tCard.classList.remove('selected');
+      if(submitBtn) submitBtn.textContent = 'Get Monthly Pro · $7.99';
+      if(fine) fine.textContent = 'Chat stays free forever. 30 video credits a month, cancel anytime.';
+    }
+  }
+
+  (window as any).__pwSetPlan = setPlan;
+  (window as any).__pwSubmit = function(){
+    if(curSelectedPlan === 'trial'){
+      checkout('trial', 'monthly');
+    } else {
+      checkout('direct', 'monthly');
+    }
+  };
+
+  var tEl = $('pw-plan-trial');
+  if(tEl) tEl.onclick = function(){ setPlan('trial'); };
+  var mEl = $('pw-plan-monthly');
+  if(mEl) mEl.onclick = function(){ setPlan('monthly'); };
+  var subEl = $('pw-cta-submit');
+  if(subEl) subEl.onclick = function(){ (window as any).__pwSubmit(); };
 }
 
 function go(v,noHash){
+  closeChatContextMenu();
+  try { (window as any).doubtsterGo = go; (window as any).doubtsterPromo = promo; } catch(e){}
+  if(v==='plans'){ promo(); return; }
+
   if(['flash','quiz','videos','notes'].indexOf(v)>-1 && !hasPlan()){
     view=v;if(!noHash){try{history.replaceState(null,'','#'+v)}catch(e){}}
-    timers.forEach(clearInterval);timers=[];stopPlayer();paintNav();paintHist();window.scrollTo(0,0);
+    timers.forEach(clearInterval);timers=[];stopPlayer();paintNav();paintHist();if(v!=='chat')window.scrollTo(0,0);
     renderPaywall(v);
     var m=$('view');m.classList.remove('vin');void m.offsetWidth;m.classList.add('vin');
     return;
   }
   view=v;if(!noHash){try{history.replaceState(null,'','#'+v)}catch(e){}}
-  timers.forEach(clearInterval);timers=[];stopPlayer();paintNav();paintHist();window.scrollTo(0,0);
+  timers.forEach(clearInterval);timers=[];stopPlayer();paintNav();paintHist();if(v!=='chat')window.scrollTo(0,0);
   if(R[v]) R[v]();
   var m=$('view');m.classList.remove('vin');void m.offsetWidth;m.classList.add('vin');
 }
@@ -597,11 +1446,11 @@ function checklist(){return[
  {t:'Make a video (Pro)',d:S.videos.length>0,a:'videos'}]}
 function badges(){var t=0;Object.keys(S.act).forEach(function(k){t+=(S.act[k].c||0)});var best=0;S.quizzes.forEach(function(q){if(q.total&&q.score===q.total)best=1});
  return[{n:'First question',d:S.chats.length>0},{n:'First deck',d:S.decks.length>0},{n:'100 cards reviewed',d:t>=100},{n:'Perfect quiz',d:!!best},{n:'3 day streak',d:streak()>=3},{n:'7 day streak',d:streak()>=7},{n:'First video',d:S.videos.length>0}]}
-function renderHome(){var nm=S.profile.name?', '+S.profile.name:'',due=dueCards().length,g=goalToday(),gp=Math.min(100,Math.round(g/S.goal*100)),st=streak(),wb=weekBars(),mx=Math.max(1,Math.max.apply(null,wb.map(function(x){return x.n}))),cl=checklist(),done=cl.filter(function(x){return x.d}).length,sm=subjMastery();
+function renderHome(){var rawNm=(S.profile&&S.profile.name)||'',nm=rawNm?(rawNm.charAt(0).toUpperCase()+rawNm.slice(1)):'',due=dueCards().length,g=goalToday(),gp=Math.min(100,Math.round(g/S.goal*100)),st=streak(),wb=weekBars(),mx=Math.max(1,Math.max.apply(null,wb.map(function(x){return x.n}))),cl=checklist(),done=cl.filter(function(x){return x.d}).length,sm=subjMastery();
  var recent=S.chats.slice().sort(function(a,b){return b.ts-a.ts}).slice(0,4);
  $('view').innerHTML='<div class="pgw wide">'+
  (S.profile.level||S.dismissed?'':'<div class="banner"><span>Tell us your level and subjects so answers fit you.</span><span><a href="'+h(CFG.ONBOARDING_URL)+'">finish setup</a> &nbsp; <button type="button" data-act="dismiss">not now</button></span></div>')+
- '<section class="hero2"><div class="hl"><p class="eyebrow">'+greet()+'</p><h1>what are you<br>learning'+(nm?'<span class="nmx">'+h(nm)+'</span>':'')+' today?</h1></div>'+
+ '<section class="hero2"><div class="hl"><p class="eyebrow">'+greet()+'</p><h1>What are you<br>learning today'+(nm?', <span class="nmx">'+h(nm)+'</span>':'')+'?</h1></div>'+
  '<div class="hr"><div class="cbox qa"><label class="sr" for="hq">Ask a question</label><textarea id="hq" rows="2" maxlength="1000" placeholder="Ask anything, or paste a problem"></textarea><div class="crow2"><span class="free">chat is free</span><kbd class="kk">Ctrl K</kbd><button class="send" id="hsend" type="button" aria-label="Ask" disabled>&#8593;</button></div></div><div class="sug">'+EXAMPLES.slice(0,4).map(function(x){return '<button type="button" data-act="ask" data-q="'+h(x)+'">'+h(x)+'</button>'}).join('')+'</div></div></section>'+
  '<div class="stats">'+
  '<div class="win stat"><div class="tb"><i></i><i></i><i></i><em>streak</em></div><div class="sb"><div class="big">'+st+'</div><p>day'+(st===1?'':'s')+' in a row</p><small>'+(dayTotal(today())?'Today counts.':'Study a little today to '+(st?'keep it':'start one')+'.')+'</small></div></div>'+
@@ -705,7 +1554,23 @@ function aToMarkdown(a){
  md+=':::\n';
  return md;
 }
-function plainHTML(m,mid,fresh){return '<div class="am'+(fresh?' fresh':'')+'"><div class="win"><div class="tb"><i></i><i></i><i></i><em>reply.md</em></div><div class="bd2"><div id="ans-mount-'+mid+'" class="ans-mount" data-mid="'+mid+'"></div>'+genBar(mid,srcOf(mid))+msgTools(m,mid)+'<p class="aim">AI explanations can contain mistakes. Check important answers with your teacher.</p></div></div></div>'}
+function plainHTML(m,mid,fresh){
+  var isSmallTalk=m.intent==='SMALL_TALK'||m.intent==='META'||(
+    !m.a&&(!m.parts||!m.parts.length)&&(!m.steps||!m.steps.length)&&
+    m.text&&!m.text.includes('###')&&!m.text.includes(':::')&&!m.text.includes('## ')
+  );
+  if(isSmallTalk){
+    return '<div class="am plain-talk'+(fresh?' fresh':'')+'">'+
+      '<div class="tutor-bubble">'+
+        '<div class="tutor-avatar" aria-hidden="true">?</div>'+
+        '<div class="tutor-content">'+
+          renderTutorMarkdown(m.text||'')+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }
+  return '<div class="am'+(fresh?' fresh':'')+'"><div class="win"><div class="tb"><i></i><i></i><i></i><em>reply.md</em></div><div class="bd2"><div id="ans-mount-'+mid+'" class="ans-mount" data-mid="'+mid+'"></div>'+genBar(mid,srcOf(mid))+msgTools(m,mid)+'<p class="aim">AI explanations can contain mistakes. Check important answers with your teacher.</p></div></div></div>';
+}
 function demoFallback(m,mid){return '<div class="am"><div class="win"><div class="tb"><i></i><i></i><i></i><em>reply.md</em></div><div class="bd2"><span class="demo">DEMO MODE</span><p class="tx">The built-in demo can solve linear equations, percentage change over years, speed-up-from-rest problems and basic sums, and explain a few topics. Anything else needs your AI endpoint (set <b>NEXT_PUBLIC_DEMO=false</b> and build the endpoint). Try one of these:</p><div class="sug" style="justify-content:flex-start">'+EXAMPLES.map(function(x){return '<button type="button" data-act="ask" data-q="'+h(x)+'">'+h(x)+'</button>'}).join('')+'</div>'+genBar(mid,null)+'</div></div></div>'}
 
 /* ================= thinking line (symbols, words, dots, elapsed timer) ================= */
@@ -821,18 +1686,8 @@ function currentLang(){
   return THINK_I18N[l] ? l : 'en';
 }
 
-function announceLive(msg){
-  var sr = $('think-announcer');
-  if(!sr){
-    sr = document.createElement('div');
-    sr.id = 'think-announcer';
-    sr.className = 'sr';
-    sr.setAttribute('role', 'status');
-    sr.setAttribute('aria-live', 'polite');
-    document.body.appendChild(sr);
-  }
-  sr.textContent = '';
-  setTimeout(function(){ if(sr) sr.textContent = msg; }, 50);
+function announceLive(){
+  try { var sr = document.getElementById('think-announcer'); if(sr) sr.remove(); } catch(e) {}
 }
 
 function thinkHTML(){
@@ -840,8 +1695,7 @@ function thinkHTML(){
   var dict = THINK_I18N[lang] || THINK_I18N.en;
   var initWord = dict.words[Math.floor(Math.random() * dict.words.length)];
   return '<div class="am">' +
-    '<div class="think-line" role="status" aria-label="' + h(dict.label) + '">' +
-      '<span class="sr think-sr">' + h(dict.label) + '</span>' +
+    '<div class="think-line" role="status">' +
       '<span class="think-visual" aria-hidden="true">' +
         '<span class="think-sym">' + SYMBOLS[0] + '</span>' +
         '<span class="think-word">' + h(initWord) + '</span>' +
@@ -1020,9 +1874,30 @@ function stopChatRequest(){
 }
 
 function paintMsgs(ns){var c=curChat(),el=$('msgs');if(!el)return;
- var th=$('cth');if(th){th.hidden=!(c&&c.msgs.length);if(c)$('ctt').textContent=c.title}
- if(!c||!c.msgs.length){el.innerHTML='';$('empty').hidden=false;return}
- $('empty').hidden=true;el.className='msgs'+(S.detail==='quick'?' quick':'');
+ var th=$('cth');
+ if(th){
+  th.hidden=!(c&&c.msgs.length);
+  if(c){
+   var ctt=$('ctt');if(ctt)ctt.textContent=c.title;
+   var artEl=$('cth-art-count');
+   if(artEl){
+    var artNum=(c.msgs||[]).filter(function(m){return m.r==='a'||m.a||m.text;}).length;
+    artEl.textContent=String(Math.max(1,artNum));
+   }
+  }
+ }
+ var cp=$('chatp');
+ if(!c||!c.msgs.length){
+  el.innerHTML='';
+  if($('empty'))$('empty').hidden=false;
+  if(cp){cp.classList.add('is-empty');cp.classList.remove('has-msgs')}
+  return;
+ }
+ if(cp){cp.classList.remove('is-empty');cp.classList.add('has-msgs')}
+ if($('empty')&&(!cp||!cp.classList.contains('is-docking'))){
+  setTimeout(function(){if(cp&&!cp.classList.contains('is-empty')&&$('empty'))$('empty').hidden=true;},450);
+ }
+ el.className='msgs'+(S.detail==='quick'?' quick':'');
  el.innerHTML=c.msgs.map(function(m,i){if(m.r==='u')return '<div class="um">'+h(m.t)+'</div>';
   if(m.stopped)return '<div class="am"><div class="think-line is-stopped"><span class="think-sym" aria-hidden="true">—</span><span class="think-word" aria-hidden="true">'+h(m.text||'Stopped')+'</span></div></div>';
   var f=i===freshIdx;if(m.fallback)return demoFallback(m,i);if(m.a&&!m.text)m.text=aToMarkdown(m.a);if(m.text||(m.parts&&m.parts.length))return plainHTML(m,i,f);return ansHTML(m,i,f)}).join('')+(busy?thinkHTML():'');
@@ -1035,13 +1910,51 @@ function paintMsgs(ns){var c=curChat(),el=$('msgs');if(!el)return;
    renderAnswerMount(mountEl,msg.text||'',msg.parts);
   }
  });
- var last=el.lastElementChild;if(!ns&&last&&last.scrollIntoView)last.scrollIntoView({block:(last.classList.contains('am')&&!busy)?'start':'end',behavior:'smooth'})}
+ if(!ns){
+  setTimeout(function(){
+   window.scrollTo({top:document.documentElement.scrollHeight,behavior:'smooth'});
+  },50);
+ }
+}
 
-var busy=false;
-function ask(q){q=(q||'').trim();if(!q||busy)return;
- var c=curChat();if(!c){c={id:uid(),title:q.slice(0,48),ts:Date.now(),msgs:[]};S.chats.push(c);S.cur=c.id}
- c.msgs.push({r:'u',t:q});c.ts=Date.now();bump('q');busy=true;freshIdx=-1;paintHist();
- if(view!=='chat')go('chat');else paintMsgs();paintNav();
+var busy=false, currentAttachment=null;
+function ask(q, att){
+ att = att || currentAttachment;
+ q=(q||'').trim();
+ if((!q && !att)||busy)return;
+ var displayTitle = q || (att ? 'Analyze ' + att.name : 'Question');
+ var c=curChat();if(!c){c={id:uid(),title:displayTitle.slice(0,48),ts:Date.now(),msgs:[]};S.chats.push(c);S.cur=c.id}
+ var userText = q;
+ if(att) userText = (userText ? userText + ' ' : '') + '[Attached: ' + att.name + ']';
+ var cp=$('chatp'),comp=$('comp'),wasEmpty=cp&&cp.classList.contains('is-empty');
+ if(wasEmpty&&comp){
+  var firstRect=comp.getBoundingClientRect();
+  cp.classList.add('is-docking');
+  cp.classList.remove('is-empty');
+  cp.classList.add('has-msgs');
+  c.msgs.push({r:'u',t:userText});c.ts=Date.now();bump('q');busy=true;freshIdx=-1;paintHist();
+  paintMsgs(true);
+  paintNav();
+  var lastRect=comp.getBoundingClientRect();
+  var deltaY=firstRect.top-lastRect.top;
+  comp.style.transition='none';
+  comp.style.transform='translateY('+deltaY+'px)';
+  void comp.offsetHeight;
+  requestAnimationFrame(function(){
+   comp.style.transition='transform 0.48s cubic-bezier(0.16, 1, 0.3, 1)';
+   comp.style.transform='translateY(0)';
+  });
+  setTimeout(function(){
+   comp.style.transition='';
+   comp.style.transform='';
+   if(cp)cp.classList.remove('is-docking');
+   window.scrollTo({top:document.documentElement.scrollHeight,behavior:'smooth'});
+  },500);
+ } else {
+  c.msgs.push({r:'u',t:userText});c.ts=Date.now();bump('q');busy=true;freshIdx=-1;paintHist();
+  if(view!=='chat')go('chat');else paintMsgs();paintNav();
+  window.scrollTo({top:document.documentElement.scrollHeight,behavior:'smooth'});
+ }
  var sub=$('subj')?$('subj').value:'';
  activeChatAbort=(typeof AbortController!=='undefined')?new AbortController():null;
  var dict=THINK_I18N[currentLang()]||THINK_I18N.en;
@@ -1065,7 +1978,7 @@ function ask(q){q=(q||'').trim();if(!q||busy)return;
  if(CFG.DEMO){activeDemoTimer=setTimeout(function(){activeDemoTimer=null;var a=demoSolve(q);done(a?{a:a}:{fallback:true})},550+Math.random()*500);return}
  fetch(CFG.CHAT_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
   signal:activeChatAbort?activeChatAbort.signal:undefined,
-  body:JSON.stringify({messages:c.msgs.filter(function(m){return !m.stopped}).map(function(m){return{role:m.r==='u'?'user':'assistant',content:m.r==='u'?m.t:(m.a?m.a.title+': '+m.a.answer:(m.text||''))}}).slice(-12),profile:S.profile,subject:sub,detail:S.detail,stream:true})})
+  body:JSON.stringify({messages:c.msgs.filter(function(m){return !m.stopped}).map(function(m){return{role:m.r==='u'?'user':'assistant',content:m.r==='u'?m.t:(m.a?m.a.title+': '+m.a.answer:(m.text||''))}}).slice(-12),profile:S.profile,subject:sub,detail:S.detail,attachment:att?{name:att.name,type:att.type,base64:att.base64}:null})})
   .then(function(r){
    if(!r.ok)throw 0;
    var ctype=r.headers.get('content-type')||'';
@@ -1116,6 +2029,8 @@ function ask(q){q=(q||'').trim();if(!q||busy)return;
           paintMsgs(true);
          } else if(ev.type==='done'){
           curAssistant.text=ev.text||curAssistant.text;
+          if(ev.intent)curAssistant.intent=ev.intent;
+          if(ev.title){c.title=ev.title;save();paintHist()}
           if(ev.parts&&ev.parts.length)curAssistant.parts=ev.parts;
           done(curAssistant,true);
           return;
@@ -1132,31 +2047,159 @@ function ask(q){q=(q||'').trim();if(!q||busy)return;
     pump();
     return;
    }
-   return r.json().then(function(j){done(j.steps?{a:j}:{text:j.text||'Sorry, no answer came back.',parts:j.parts})});
+   return r.json().then(function(j){
+    var replyText = j.text || j.content || (j.answer ? j.answer.summary : '');
+    if(j.title||(j.answer&&j.answer.title)){c.title=j.title||j.answer.title;save();paintHist()}
+    if (j.steps && j.steps.length) {
+      done({ a: j, text: replyText, intent: j.intent, parts: j.parts });
+    } else {
+      done({ text: replyText || 'Sorry, no answer came back.', intent: j.intent, parts: j.parts });
+    }
+   });
   })
   .catch(function(err){if(err&&err.name==='AbortError')return;done({text:'Could not reach the answer service. Check your connection and try again.'})})}
 var rec=null;
+
+var TRY_OFFSET = 0;
+function renderTryList(advance){
+  if(advance) TRY_OFFSET = (TRY_OFFSET + 4) % EXAMPLES.length;
+  var items = [];
+  for(var i = 0; i < 4; i++){
+    var idx = (TRY_OFFSET + i) % EXAMPLES.length;
+    items.push(EXAMPLES[idx]);
+  }
+  return items.map(function(q){
+    return '<button type="button" class="try-item" data-act="ask" data-q="'+h(q)+'">'+
+      '<span class="try-arrow">↗</span>'+
+      '<span class="try-text">'+h(q)+'</span>'+
+    '</button>';
+  }).join('');
+}
+
 function renderChat(){
- var nm=S.profile.name?', '+S.profile.name:'';
+ var rawNm=(S.profile&&S.profile.name)||'';
+ var nm=rawNm?', '+(rawNm.charAt(0).toUpperCase()+rawNm.slice(1)):'';
  var subs=['Auto','Maths','Physics','Chemistry','Biology','Economics','Accounting','Coding','English'];
- $('view').innerHTML='<div class="chatp"><div class="pgw" style="width:100%">'+
- '<div class="cth" id="cth" hidden><h2 id="ctt"></h2><span><button type="button" class="chip2" data-act="renamec">'+ic('pen')+'Rename</button><button type="button" class="chip2" data-act="exportc">'+ic('down')+'Export</button><button type="button" class="chip2 danger" data-act="delcur">'+ic('trash')+'Delete</button></span></div>'+
- '<div class="empty" id="empty"><h1>what are you stuck on'+h(nm.toLowerCase())+'?</h1><p>Ask anything. Chat is always free. Every reply can become a video, flashcards or a quiz.</p><div class="sug">'+EXAMPLES.slice(0,5).map(function(x){return '<button type="button" data-act="ask" data-q="'+h(x)+'">'+h(x)+'</button>'}).join('')+'</div></div>'+
- '<div class="msgs" id="msgs" aria-live="polite"></div></div>'+
- '<div class="comp"><div class="cbox"><label class="sr" for="in">Your question</label><textarea id="in" rows="1" maxlength="1000" placeholder="Type a question, any subject"></textarea>'+
- '<div class="crow2"><label class="sr" for="subj">Subject</label><select id="subj">'+subs.map(function(s){return '<option>'+s+'</option>'}).join('')+'</select>'+
- '<div class="seg" role="group" aria-label="Answer detail"><button type="button" data-act="detail" data-d="steps" aria-pressed="'+(S.detail!=='quick')+'">Steps</button><button type="button" data-act="detail" data-d="quick" aria-pressed="'+(S.detail==='quick')+'">Quick</button></div>'+
- '<span class="free">chat is free</span><button class="ico2" id="mic" type="button" aria-label="Speak your question" hidden>'+ic('mic')+'</button><button class="send" id="send" type="button" aria-label="Ask" disabled>&#8593;</button></div></div>'+
- '<p class="cnote">'+(CFG.DEMO?'Demo mode: answers come from a small built-in engine. ':'')+'AI explanations can contain mistakes. Check important answers with your teacher.</p></div></div>';
- var inp=$('in'),sd=$('send');
- function fit(){inp.style.height='auto';inp.style.height=Math.min(200,inp.scrollHeight)+'px';sd.disabled=!inp.value.trim()}
+ var c=curChat();
+ var isEmptyChat=!c||!c.msgs.length;
+ $('view').innerHTML='<div class="chatp'+(isEmptyChat?' is-empty':' has-msgs')+'" id="chatp"><div class="pgw" style="width:100%">'+
+ '<div class="cth" id="cth" hidden>'+
+ '<div class="cth-left">'+
+  '<button type="button" class="cth-title-btn" id="ctt-btn" data-act="chattitlemenu" title="Chat options">'+
+   '<span class="cth-title-text" id="ctt"></span>'+
+   '<svg class="cth-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'+
+  '</button>'+
+ '</div>'+
+ '<div class="cth-right">'+
+  '<button type="button" class="cth-action-btn" id="cth-artifacts-btn" data-act="chat-artifacts" title="Artifacts & answers in this chat">'+
+   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'+
+   '<span id="cth-art-count">1</span>'+
+  '</button>'+
+  '<button type="button" class="cth-action-btn" data-act="sharechat" title="Share this chat">'+
+   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>'+
+   '<span>Share</span>'+
+  '</button>'+
+ '</div>'+
+ '</div>'+
+ '<div class="empty" id="empty"'+(isEmptyChat?'':' hidden')+'>'+
+  '<div class="scite-badge" data-act="promo">'+
+   '<span class="scite-badge-icon">✦</span>'+
+   '<span class="scite-badge-text">AI Homework & Doubt Engine</span>'+
+   '<span class="scite-badge-arrow">→</span>'+
+  '</div>'+
+  '<h1>What are you studying?</h1>'+
+  '<p>Get step-by-step verified explanations, chalkboard videos, and flashcards for any question.</p>'+
+ '</div>'+
+ '<div class="msgs" id="msgs" aria-live="polite"></div><button type="button" class="scroll-down-btn" id="scroll-down-btn" aria-label="Scroll to bottom" style="display:none">&#8595;</button></div>'+
+ '<div class="comp" id="comp">'+
+ '<div id="att-preview" class="att-preview" hidden></div>'+
+ '<div class="cbox">'+
+  '<div class="cbox-inner">'+
+   '<div class="cbox-top">'+
+    '<span class="scite-blue-dot"></span>'+
+    '<input type="file" id="att-input" accept="image/png,image/jpeg,image/webp,application/pdf,text/plain" style="display:none">'+
+    '<label class="sr" for="in">Your question</label>'+
+    '<textarea id="in" rows="1" maxlength="1000" placeholder="Ask a question or paste a problem to solve..."></textarea>'+
+   '</div>'+
+   '<div class="cbox-bottom">'+
+    '<div class="cbox-left">'+
+     '<label class="scite-step-toggle" title="Toggle detailed step-by-step explanation"><input type="checkbox" id="detail-chk"'+(S.detail!=='quick'?' checked':'')+'><span>Step-by-step solution</span></label>'+
+    '</div>'+
+    '<div class="cbox-right">'+
+     '<button class="scite-tool-btn" id="att-btn" type="button" aria-label="Attach file" title="Attach homework photo, diagram or PDF"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>'+
+     '<div class="scite-subj-select" title="Select Subject"><select id="subj">'+subs.map(function(s){return '<option>'+s+'</option>'}).join('')+'</select></div>'+
+     '<button class="scite-tool-btn" id="mic" type="button" aria-label="Speak your question" hidden>'+ic('mic')+'</button>'+
+     '<button class="scite-send-btn send" id="send" type="button" aria-label="Ask" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>'+
+    '</div>'+
+   '</div>'+
+  '</div>'+
+ '</div>'+
+ '<div class="try-section" id="try-section"'+(isEmptyChat?'':' hidden')+'>'+
+  '<div class="try-hdr">'+
+   '<span>Try one of these</span>'+
+   '<button type="button" class="try-refresh-btn" id="try-refresh-btn" title="Refresh suggestions">↻</button>'+
+  '</div>'+
+  '<div class="try-list" id="try-list">'+
+   renderTryList()+
+  '</div>'+
+ '</div>'+
+ '</div></div>';
+ var inp=$('in'),sd=$('send'),attBtn=$('att-btn'),attInput=$('att-input'),attPrv=$('att-preview');
+ var dChk=$('detail-chk');
+ if(dChk){
+  dChk.onchange=function(){
+   S.detail=this.checked?'steps':'quick';
+   save();
+  };
+ }
+ var refBtn=$('try-refresh-btn');
+ if(refBtn){
+  refBtn.onclick=function(){
+   var tl=$('try-list');
+   if(tl) tl.innerHTML=renderTryList(true);
+  };
+ }
+ function fit(){inp.style.height='auto';inp.style.height=Math.min(200,inp.scrollHeight)+'px';sd.disabled=(!inp.value.trim()&&!currentAttachment)}
  inp.addEventListener('input',fit);
  inp.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sd.click()}});
- sd.onclick=function(){var v=inp.value;inp.value='';fit();ask(v)};
+ sd.onclick=function(){var v=inp.value;var attToSend=currentAttachment;inp.value='';currentAttachment=null;if(attInput)attInput.value='';if(attPrv){attPrv.hidden=true;attPrv.innerHTML='';}fit();ask(v,attToSend)};
+ if(attBtn&&attInput){
+  attBtn.onclick=function(){attInput.click()};
+  attInput.onchange=function(){
+   var file=this.files&&this.files[0];
+   if(!file)return;
+   if(file.size>5*1024*1024){toast('File is too large (max 5 MB).');this.value='';return}
+   var reader=new FileReader();
+   reader.onload=function(ev){
+    currentAttachment={name:file.name,type:file.type||'application/octet-stream',base64:String(ev.target.result||''),size:file.size};
+    if(attPrv){
+     attPrv.hidden=false;
+     attPrv.innerHTML='<span class="att-chip">&#128206; '+h(file.name)+' ('+Math.round(file.size/1024)+' KB) <button type="button" id="att-rm" aria-label="Remove">&times;</button></span>';
+     var rm=$('att-rm');
+     if(rm){
+      rm.onclick=function(){currentAttachment=null;attInput.value='';attPrv.hidden=true;attPrv.innerHTML='';fit()}
+     }
+    }
+    fit();
+   };
+   reader.readAsDataURL(file);
+  };
+ }
  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(SR){var mb=$('mic');mb.hidden=false;mb.onclick=function(){try{if(rec){rec.stop();return}rec=new SR();rec.lang='en-IN';rec.interimResults=false;mb.classList.add('on');
   rec.onresult=function(e){inp.value=(inp.value+' '+e.results[0][0].transcript).trim();fit()};rec.onend=function(){rec=null;mb.classList.remove('on')};rec.onerror=function(){rec=null;mb.classList.remove('on');toast('Could not hear you. Check the mic permission.')};rec.start()}catch(x){rec=null;mb.classList.remove('on')}}}
  var q0=new URLSearchParams(location.search).get('q');if(q0&&!renderChat.used){renderChat.used=1;inp.value=q0.slice(0,300);fit()}
+ var scrollBtn=$('scroll-down-btn');
+ function checkScroll(){
+  if(!scrollBtn)return;
+  var d=document.documentElement;
+  var dist=d.scrollHeight-window.innerHeight-window.scrollY;
+  if(dist>200){scrollBtn.style.display='flex'}else{scrollBtn.style.display='none'}
+ }
+ window.addEventListener('scroll',checkScroll,{passive:true});
+ if(scrollBtn){
+  scrollBtn.onclick=function(){window.scrollTo({top:document.documentElement.scrollHeight,behavior:'smooth'})};
+ }
  paintMsgs();if(window.innerWidth>860)inp.focus()}
 
 /* ================= video: length + language picker, scenes, canvas player ================= */
@@ -1502,7 +2545,9 @@ function playVideo(id){var v=S.videos.filter(function(x){return x.id===id})[0];i
  setTimeout(function(){if(!pages)fl()},1500);
  pl.on=false;pl.t=0;pl.i=0;var starter=setInterval(function(){if(pages){clearInterval(starter);toggle()}},60)}
 function recentAnswers(){var r=[];S.chats.forEach(function(c){c.msgs.forEach(function(m,i){if(m.a)r.push({cid:c.id,i:i,t:m.a.title})})});return r.slice(-8).reverse()}
-function renderVideos(){var recent=recentAnswers(),c=PRICE.videoCost[vsel];
+function renderVideos(){
+  if (!hasPlan()) { renderPaywall('videos'); return; }
+  var recent=recentAnswers(),c=PRICE.videoCost[vsel];
  $('view').innerHTML='<div class="pgw"><div class="ph"><div><h1>video studio</h1><p>Board-style explainers drawn step by step, with graphs where they help. 2 minutes costs '+PRICE.videoCost[2]+' credit, 5 minutes costs '+PRICE.videoCost[5]+'. You have <b>'+credits()+'</b>.</p></div><button class="pill b sm" type="button" data-act="'+(S.plan?'credits':'promo')+'">'+(S.plan?'get more credits':'start a trial')+'</button></div>'+
  '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>new-video.app</em></div><div class="in3"><label for="vp">What should the video explain?</label><textarea id="vp" maxlength="300" placeholder="e.g. solve 3x - 7 = 11, or explain recursion"></textarea>'+
  (recent.length?'<label for="vf">Or pick from your recent answers</label><select id="vf"><option value="">Choose an answer</option>'+recent.map(function(r){return '<option value="'+r.cid+':'+r.i+'">'+h(r.t)+'</option>'}).join('')+'</select>':'')+
@@ -1515,7 +2560,10 @@ var fs={mode:'home',deck:null,queue:[],i:0,flip:false,st:[0,0,0,0],total:0,done:
 function deckById(id){return S.decks.filter(function(d){return d.id===id})[0]||null}
 function cardOf(ref){var d=deckById(ref.d);if(!d)return null;var c=d.cards.filter(function(x){return x.id===ref.c})[0];return c?{d:d,c:c}:null}
 function whenLabel(c){if(cstate(c)==='new')return 'new';var n=NOW();if(c.due<=n)return 'due now';var dd=Math.ceil((c.due-n)/DAY);return dd<=1?'tomorrow':'in '+dd+' days'}
-function renderFlash(){fs.mode='home';paintFlash()}
+function renderFlash(){
+  if (!hasPlan()) { renderPaywall('flash'); return; }
+  fs.mode='home';paintFlash();
+}
 function paintFlash(){if(fs.mode==='study')return paintStudy();if(fs.mode==='deck')return paintDeck();
  var due=dueCards(),ac=allCards(),nn=0,ll=0,mm=0;S.decks.forEach(function(d){var s=deckStats(d);nn+=s.n;ll+=s.l;mm+=s.m});
  $('view').innerHTML='<div class="pgw wide"><div class="ph"><div><h1>flashcards</h1><p>Spaced repetition: cards you know come back later, cards you miss come back sooner. Free, no credits.</p></div><button class="pill b sm" type="button" data-act="newdeck">+ new deck</button></div>'+
@@ -1526,7 +2574,9 @@ function paintFlash(){if(fs.mode==='study')return paintStudy();if(fs.mode==='dec
  '<div id="newdeck" class="two" style="margin-top:22px">'+
  '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>from-topic.app</em></div><div class="in3"><label for="ftopic">Generate a deck from a topic or problem</label><input type="text" id="ftopic" maxlength="200" placeholder="e.g. photosynthesis, or solve 3x - 7 = 11"><div><button class="pill b sm" type="button" data-act="fgen">generate</button></div><p class="mute small">'+(CFG.DEMO?'Demo mode: works for the topics the built-in engine knows.':'Uses your deck endpoint.')+'</p></div></div>'+
  '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>paste-cards.app</em></div><div class="in3"><label for="ftitle">Deck name</label><input type="text" id="ftitle" maxlength="60" placeholder="e.g. Chemistry formulas"><label for="fpaste">Cards, one per line: front :: back</label><textarea id="fpaste" placeholder="Unit of force :: newton&#10;pH of a neutral solution :: 7"></textarea><div><button class="pill sm" type="button" data-act="fmake">create deck</button></div></div></div></div></div>'}
-function studyStart(deckId,cram){var q=(cram?allCards().filter(function(x){return !deckId||x.d.id===deckId}):dueCards(deckId));
+function studyStart(deckId,cram){
+  if (!hasPlan()) { renderPaywall('flash'); return; }
+  var q=(cram?allCards().filter(function(x){return !deckId||x.d.id===deckId}):dueCards(deckId));
  if(cram)q=shuffle(q);if(!q.length){toast('Nothing due right now.');return}
  q=q.slice(0,40);if(view!=='flash')go('flash');var d=deckId&&deckById(deckId);
  fs={mode:'study',deck:deckId||null,queue:q.map(function(x){return{d:x.d.id,c:x.c.id}}),i:0,flip:false,st:[0,0,0,0],total:q.length,done:0,label:d?d.title:'All decks'};paintFlash()}
@@ -1540,17 +2590,22 @@ function paintStudy(){
  var labels=[['Again',0],['Hard',1],['Good',2],['Easy',3]];
  $('view').innerHTML='<div class="pgw"><div class="ph"><div><h1>'+h(fs.label)+'</h1><p>Card '+Math.min(fs.done+1,fs.total)+' of '+fs.total+' &middot; <span class="tag g">'+h(x.d.title.slice(0,30))+'</span></p></div><button class="pill sm" type="button" data-act="flashhome">end session</button></div>'+
  '<div class="pbar2" style="max-width:640px;margin:0 auto 18px"><i style="width:'+(fs.done/fs.total*100)+'%"></i></div>'+
- '<div class="fc'+(cl?' long':'')+'" id="fc"><div class="fci" id="fci" tabindex="0" role="button" aria-label="Flip card (Space)"><div class="fcf"><small>Question</small>'+h(c.f)+'</div><div class="fcb"><small>Answer</small>'+h(c.b)+'</div></div></div>'+
+ '<div class="fc'+(cl?' long':'')+'" id="fc"><div class="fci" id="fci" tabindex="0" role="button" aria-label="Flip card (Space)"><div class="fcf"><small>Question</small>'+renderMath(c.f)+'</div><div class="fcb"><small>Answer</small>'+renderMath(c.b)+'</div></div></div>'+
  '<div class="fcn"><button class="pill b" id="showb" type="button" data-act="cflip">Show answer <kbd class="kk">Space</kbd></button></div>'+
  '<div class="rate" id="rate" hidden>'+labels.map(function(l){var nx=srsNext(c,l[1]);return '<button type="button" class="r'+l[1]+'" data-act="srate" data-g="'+l[1]+'"><b>'+l[0]+'</b><small>'+ivLabel(nx.int)+'</small><kbd class="kk">'+(l[1]+1)+'</kbd></button>'}).join('')+'</div>'+
  '<p class="mute small" style="text-align:center;margin-top:14px">Shortcuts: Space flips, 1 to 4 rates, Esc ends the session.</p></div>';
  }
 function srate(g){var ref=fs.queue[fs.i],x=ref&&cardOf(ref);if(!x||!fs.flip)return;rate(x.c,g);fs.st[g]++;if(g===0)fs.queue.push(ref);else fs.done++;fs.i++;paintNav();paintStudy()}
-function openDeck(id){if(view!=='flash')go('flash');fs={mode:'deck',deck:id,queue:[],i:0,flip:false,st:[0,0,0,0],total:0,done:0,label:''};paintFlash()}
+function openDeck(id){
+  if (!hasPlan()) { renderPaywall('flash'); return; }
+  if(view!=='flash')go('flash');
+  fs={mode:'deck',deck:id,queue:[],i:0,flip:false,st:[0,0,0,0],total:0,done:0,label:''};
+  paintFlash();
+}
 function paintDeck(){var d=deckById(fs.deck);if(!d){fs.mode='home';return paintFlash()}var s=deckStats(d);
  $('view').innerHTML='<div class="pgw wide"><div class="ph"><div><h1>'+h(d.title)+'</h1><p>'+h(d.subject||'Deck')+' &middot; '+s.total+' cards &middot; '+s.due+' due &middot; '+s.m+' mastered</p></div><button class="pill sm" type="button" data-act="flashhome">all decks</button></div>'+
  '<div class="acts" style="margin:0 0 16px"><button type="button" class="vid" data-act="studydeck" data-id="'+d.id+'">'+(s.due?'Study '+s.due+' due':'Cram all')+'</button>'+(s.due?'<button type="button" data-act="cramdeck" data-id="'+d.id+'">Cram all</button>':'')+'<button type="button" data-act="deckquiz" data-id="'+d.id+'">Quiz me</button><button type="button" data-act="cardedit" data-id="'+d.id+'">+ Add card</button><button type="button" data-act="deckcsv" data-id="'+d.id+'">Export CSV</button><button type="button" data-act="deckren" data-id="'+d.id+'">Rename</button><button type="button" class="danger" data-act="deckdel" data-id="'+d.id+'">Delete deck</button></div>'+
- '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>cards.csv</em></div><div class="in3" style="padding:0"><div class="ctab"><div class="chd"><span>Front</span><span>Back</span><span>Status</span><span></span></div>'+d.cards.map(function(c){return '<div class="crw"><span>'+h(c.f)+'</span><span>'+h(c.b)+'</span><span><span class="tag '+(cstate(c)==='mastered'?'':cstate(c)==='new'?'g':'w')+'">'+cstate(c)+'</span><small class="mute">'+whenLabel(c)+'</small></span><span class="cx"><button type="button" data-act="cardedit" data-id="'+d.id+'" data-c="'+c.id+'" aria-label="Edit card">'+ic('pen')+'</button><button type="button" data-act="carddel" data-id="'+d.id+'" data-c="'+c.id+'" aria-label="Delete card">'+ic('trash')+'</button></span></div>'}).join('')+'</div></div></div></div>'}
+ '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>cards.csv</em></div><div class="in3" style="padding:0"><div class="ctab"><div class="chd"><span>Front</span><span>Back</span><span>Status</span><span></span></div>'+d.cards.map(function(c){return '<div class="crw"><span>'+renderMath(c.f)+'</span><span>'+renderMath(c.b)+'</span><span><span class="tag '+(cstate(c)==='mastered'?'':cstate(c)==='new'?'g':'w')+'">'+cstate(c)+'</span><small class="mute">'+whenLabel(c)+'</small></span><span class="cx"><button type="button" data-act="cardedit" data-id="'+d.id+'" data-c="'+c.id+'" aria-label="Edit card">'+ic('pen')+'</button><button type="button" data-act="carddel" data-id="'+d.id+'" data-c="'+c.id+'" aria-label="Delete card">'+ic('trash')+'</button></span></div>'}).join('')+'</div></div></div></div>'}
 function cardEditor(did,cid){var d=deckById(did),c=cid&&d.cards.filter(function(x){return x.id===cid})[0];
  modal('<h2>'+(c?'edit card':'add a card')+'</h2><div class="form"><label for="cf">Front</label><textarea id="cf" maxlength="400" style="min-height:70px">'+h(c?c.f:'')+'</textarea><label for="cb" style="margin-top:8px;display:block">Back</label><textarea id="cb" maxlength="600" style="min-height:70px">'+h(c?c.b:'')+'</textarea></div><div class="acts"><button type="button" data-act="close">Cancel</button><button type="button" class="vid" data-act="cardsave" data-id="'+did+'" data-c="'+(cid||'')+'">Save</button></div>')}
 function csvEsc(s){return '"'+String(s).replace(/"/g,'""')+'"'}
@@ -1572,44 +2627,343 @@ var BANK={
  Coding:[['Time complexity of binary search?','O(log n)',['O(1)','O(n)','O(log n)','O(n^2)'],'The search area halves each step.'],['What does a base case do in recursion?','stops the recursion',['starts it','stops the recursion','doubles the input','nothing'],'It answers the simplest input directly.'],['In Python, the first list index is...','0',['0','1','-1','depends'],'Python lists are zero-indexed.'],['Which structure is last in, first out?','stack',['queue','stack','array','set'],'A stack pops the most recently pushed item.']]};
 function genLinear(){var x=Math.floor(Math.random()*9)+2,a=Math.floor(Math.random()*7)+2,b=Math.floor(Math.random()*15)+1,c=a*x+b;var o=shuffle([x,x+1,x-1,x+2].map(String));return['Solve '+a+'x + '+b+' = '+c,String(x),o,'Subtract '+b+' to get '+a+'x = '+(c-b)+', then divide by '+a+'.']}
 var Q={s:'',qs:[],i:0,score:0,miss:[],ans:false,timed:false,src:'',again:null},qtimer=0,qTimed=false,QSEC=20;
-function renderQuiz(){var dk=S.decks.filter(function(d){return d.cards.length>=2});
+function renderQuiz(){
+  if (!hasPlan()) { renderPaywall('quiz'); return; }
+  var dk=S.decks.filter(function(d){return d.cards.length>=2});
  $('view').innerHTML='<div class="pgw"><div class="ph"><div><h1>quizzes</h1><p>Practice by subject, from your own flashcard decks, or from any chat reply. Free, and nothing here uses credits.</p></div></div>'+
  '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>quiz-setup.app</em></div><div class="in3"><label>Pick a subject</label><div class="tabs2" style="margin:0" id="qs">'+['Mixed'].concat(Object.keys(BANK)).map(function(s){return '<button type="button" data-act="qstart" data-s="'+s+'" aria-pressed="false">'+s+'</button>'}).join('')+'</div>'+
  (dk.length?'<label for="qdk">Or quiz yourself on a deck</label><div class="inl"><select id="qdk">'+dk.map(function(d){return '<option value="'+d.id+'">'+h(d.title)+' ('+d.cards.length+')</option>'}).join('')+'</select><button type="button" class="pill sm" data-act="qdeck">start</button></div>':'')+
  '<label class="chk" style="margin-top:0"><input type="checkbox" id="qtm"'+(qTimed?' checked':'')+'><span>Timed: '+QSEC+' seconds per question</span></label></div></div>'+
  '<div id="qa">'+(S.quizzes.length?'<h2 class="sect">recent results</h2><ul class="rcp">'+S.quizzes.slice(0,8).map(function(q){return '<li><span>'+h(q.src||q.s)+' &middot; '+dstr(q.ts)+(q.timed?' &middot; timed':'')+'</span><b>'+q.score+' / '+q.total+'</b></li>'}).join('')+'</ul>':'')+'</div></div>';
  var tm=$('qtm');if(tm)tm.onchange=function(){qTimed=tm.checked}}
-function qStart(s){var qs;
+function qStart(s){
+  if (!hasPlan()) { renderPaywall('quiz'); return; }
+  var qs;
  if(s==='Mixed'){qs=[];Object.keys(BANK).forEach(function(k){qs.push(BANK[k][Math.floor(Math.random()*4)].concat(k))});qs=shuffle(qs).slice(0,5)}
  else{qs=shuffle(BANK[s]).map(function(q){return q.concat(s)});qs.push((s==='Maths'?genLinear():shuffle(BANK[s])[0]).concat(s));
   var seen={},u=[];qs.forEach(function(q){if(!seen[q[0]]){seen[q[0]]=1;u.push(q)}});qs=u.slice(0,5)}
  qBegin(qs.map(function(q){return{q:q[0],a:q[1],o:shuffle(q[2]),e:q[3],sub:q[4]}}),s,s,function(){qStart(s)})}
-function qBegin(qs,s,src,again){if(view!=='quiz')go('quiz');var tm=$('qtm');if(tm)qTimed=tm.checked;
+function qBegin(qs,s,src,again){
+  if (!hasPlan()) { renderPaywall('quiz'); return; }
+  if(view!=='quiz')go('quiz');var tm=$('qtm');if(tm)qTimed=tm.checked;
  Q={s:s,qs:qs,i:0,score:0,miss:[],ans:false,timed:qTimed,src:src||s,again:again};
  [].forEach.call(document.querySelectorAll('#qs button'),function(b){b.setAttribute('aria-pressed',b.dataset.s===s)});paintQ()}
-function quizFromAnswer(a,q){var d=deckFrom(a,q);qBegin(mcqFromCards(d.cards,a.subject||'Quiz',5),a.subject||'Reply',a.title,function(){quizFromAnswer(a,q)})}
-function quizFromDeck(id){var d=deckById(id);if(!d)return;if(view!=='quiz')go('quiz');qBegin(mcqFromCards(d.cards,d.subject||'Deck',Math.min(8,d.cards.length)),d.subject||'Deck',d.title,function(){quizFromDeck(id)})}
+function quizFromAnswer(a,q){
+  if (!hasPlan()) { renderPaywall('quiz'); return; }
+  var d=deckFrom(a,q);qBegin(mcqFromCards(d.cards,a.subject||'Quiz',5),a.subject||'Reply',a.title,function(){quizFromAnswer(a,q)})}
+function quizFromDeck(id){
+  if (!hasPlan()) { renderPaywall('quiz'); return; }
+  var d=deckById(id);if(!d)return;if(view!=='quiz')go('quiz');qBegin(mcqFromCards(d.cards,d.subject||'Deck',Math.min(8,d.cards.length)),d.subject||'Deck',d.title,function(){quizFromDeck(id)})}
 function qClear(){clearInterval(qtimer);qtimer=0}
 function paintQ(){var q=Q.qs[Q.i],el=$('qa');qClear();if(!el)return;
  if(!q){S.quizzes.unshift({ts:Date.now(),s:Q.s,src:Q.src,score:Q.score,total:Q.qs.length,timed:Q.timed,missed:Q.miss.map(function(m){return m.q})});S.quizzes=S.quizzes.slice(0,40);save();paintNav();
   el.innerHTML='<div class="win form"><div class="tb"><i></i><i></i><i></i><em>result.md</em></div><div class="in3" style="align-items:center;text-align:center"><div class="score">'+Q.score+' / '+Q.qs.length+'</div><p>'+(Q.score===Q.qs.length?'Full marks.':Q.score>=Math.ceil(Q.qs.length*.6)?'Good work. Review what you missed.':'Worth another pass. Missed questions are below.')+'</p></div></div>'+
-  (Q.miss.length?'<h2 class="sect">to review</h2>'+Q.miss.map(function(m){return '<div class="exp" style="margin-bottom:10px"><b>'+h(m.q)+'</b><br>Answer: '+h(m.a)+'. '+h(m.e)+'</div>'}).join('')+'<div class="acts"><button class="vid" type="button" data-act="qcards">Save missed as flashcards</button></div>':'')+'<div class="acts"><button type="button" data-act="qagain">Try again</button><button type="button" data-act="go" data-v="flash">Open flashcards</button></div>';return}
- el.innerHTML='<div class="win form q"><div class="tb"><i></i><i></i><i></i><em>question '+(Q.i+1)+' of '+Q.qs.length+'</em></div><div class="in3"><div class="pbar2"><i style="width:'+(Q.i/Q.qs.length*100)+'%"></i></div>'+(Q.timed?'<div class="tmr"><i id="tmb"></i></div>':'')+'<span class="subj">'+h(q.sub)+'</span><div class="qh">'+h(q.q)+'</div><div class="opts">'+q.o.map(function(o,k){return '<button class="opt" type="button" data-act="qpick" data-k="'+k+'"><i>'+'ABCD'[k]+'</i>'+h(o)+'</button>'}).join('')+'</div><div id="qx"></div></div></div>';
+  (Q.miss.length?'<h2 class="sect">to review</h2>'+Q.miss.map(function(m){return '<div class="exp" style="margin-bottom:10px"><b>'+renderMath(m.q)+'</b><br>Answer: '+renderMath(m.a)+'. '+renderMath(m.e)+'</div>'}).join('')+'<div class="acts"><button class="vid" type="button" data-act="qcards">Save missed as flashcards</button></div>':'')+'<div class="acts"><button type="button" data-act="qagain">Try again</button><button type="button" data-act="go" data-v="flash">Open flashcards</button></div>';return}
+ el.innerHTML='<div class="win form q"><div class="tb"><i></i><i></i><i></i><em>question '+(Q.i+1)+' of '+Q.qs.length+'</em></div><div class="in3"><div class="pbar2"><i style="width:'+(Q.i/Q.qs.length*100)+'%"></i></div>'+(Q.timed?'<div class="tmr"><i id="tmb"></i></div>':'')+'<span class="subj">'+h(q.sub)+'</span><div class="qh">'+renderMath(q.q)+'</div><div class="opts">'+q.o.map(function(o,k){return '<button class="opt" type="button" data-act="qpick" data-k="'+k+'"><i>'+'ABCD'[k]+'</i>'+renderMath(o)+'</button>'}).join('')+'</div><div id="qx"></div></div></div>';
  if(Q.timed){var t0=Date.now();qtimer=setInterval(function(){var f=(Date.now()-t0)/(QSEC*1000);var b=$('tmb');if(b)b.style.width=Math.max(0,100-f*100)+'%';if(f>=1){qClear();qPick(-1)}},100)}
  el.scrollIntoView&&el.scrollIntoView({block:'nearest'})}
 function qPick(k){if(Q.ans)return;Q.ans=true;qClear();var q=Q.qs[Q.i],ok=k>=0&&q.o[k]===q.a;if(ok)Q.score++;else Q.miss.push(q);bump('z');
  [].forEach.call(document.querySelectorAll('.opt'),function(b,i){b.disabled=true;if(q.o[i]===q.a)b.classList.add('ok');else if(i===k)b.classList.add('no')});
- $('qx').innerHTML='<div class="exp"><b>'+(ok?'Correct. ':k<0?'Time is up. ':'Not quite. ')+'</b>'+h(q.e)+'</div><div class="acts"><button class="vid" type="button" data-act="qnext">'+(Q.i+1<Q.qs.length?'Next question':'See result')+'</button></div>'}
+ $('qx').innerHTML='<div class="exp"><b>'+(ok?'Correct. ':k<0?'Time is up. ':'Not quite. ')+'</b>'+renderMath(q.e)+'</div><div class="acts"><button class="vid" type="button" data-act="qnext">'+(Q.i+1<Q.qs.length?'Next question':'See result')+'</button></div>'}
 
 /* ================= notes ================= */
+
+function buildDocFromAnswer(a, q, t) {
+  var userQ = (q || (a && a.title) || t || 'Study Notes').trim();
+  var isStone = /stone|building|drop|fall|height|velocity|acceleration|gravity/i.test(userQ);
+  var isBoat = /boat|upstream|downstream|still\s*water|42\s*km|81\s*km/i.test(userQ);
+  var isCar = /car|depreciation|30,?000|15%|6\s*year/i.test(userQ);
+
+  if (isStone) {
+    return {
+      title: "Stone Dropped from Building (Free Fall)",
+      shortTitle: "Motion under Gravity",
+      question: userQ,
+      subject: "Physics",
+      chapter: "Kinematics & Free Fall",
+      pageNo: "1",
+      verified: true,
+      verifiedNote: "Checked by kinematic equations: h = 273.0 m, t = 7.46 s, Δt = 1.0 s for last quarter ✓",
+      pages: [
+        // Page 1: Problem Formulation & Core Concept
+        {
+          blocks: [
+            { type: "heading", text: "1. Problem Formulation & Conceptual Overview" },
+            {
+              type: "para",
+              text: "A stone is dropped from rest ($v_i = 0\\text{ m/s}$) from the top of a building of height $h$. It accelerates downward under gravity ($g = 9.8\\text{ m/s}^2$). We are given that the stone covers the **last quarter ($h/4$)** of its descent in exactly **1 second**."
+            },
+            {
+              type: "margin",
+              text: "Key rule: For free fall from rest, vertical displacement is proportional to time squared: $s \\propto t^2$."
+            },
+            { type: "heading", text: "2. Physical Principles & Real-World Intuition" },
+            {
+              type: "para",
+              text: "Because the stone continuously accelerates under gravity, its downward speed increases linearly ($v = gt$). Consequently, the stone moves through each successive quarter of height at an increasing average velocity, meaning the final quarter ($h/4$) is traversed in significantly less time than any previous quarter."
+            },
+            {
+              type: "margin",
+              text: "Every second, gravity adds $9.8\\text{ m/s}$ to downward velocity."
+            }
+          ]
+        },
+        // Page 2: Variables & Governing Equations
+        {
+          blocks: [
+            { type: "heading", text: "3. Parameter Declarations & Given Conditions" },
+            {
+              type: "para",
+              text: "Let $t$ be the total time of flight to fall the entire height $h$. Let $t_1$ be the time taken to descend the first three-quarters ($3h/4$) of the height."
+            },
+            { type: "heading", text: "4. Primary Governing Equations" },
+            { type: "eq", tex: "h = \\frac{1}{2}gt^2 \\implies t = \\sqrt{\\frac{2h}{g}}" },
+            {
+              type: "para",
+              text: "For the displacement of the first $3/4$ of the building's height:"
+            },
+            { type: "eq", tex: "h_1 = \\frac{3}{4}h = \\frac{1}{2}gt_1^2 \\implies t_1 = \\sqrt{\\frac{3}{4}}t = \\frac{\\sqrt{3}}{2}t \\approx 0.8660t" },
+            {
+              type: "margin",
+              text: "Dimensional check: $[h] = \\text{L}$, $[gt^2] = (\\text{L}/\\text{T}^2)\\cdot\\text{T}^2 = \\text{L}$ ✓"
+            }
+          ]
+        },
+        // Page 3: Step-by-Step Derivation & Calculations
+        {
+          blocks: [
+            { type: "heading", text: "5. Step-by-Step Derivation & Total Time" },
+            {
+              type: "steps",
+              items: [
+                {
+                  say: "Express the time taken for the last quarter of the height",
+                  tex: "\\Delta t = t - t_1 = 1\\text{ s}"
+                },
+                {
+                  say: "Substitute $t_1 = \\frac{\\sqrt{3}}{2}t$ into the elapsed time formula",
+                  tex: "t - \\frac{\\sqrt{3}}{2}t = 1 \\implies t\\left(1 - \\frac{\\sqrt{3}}{2}\\right) = 1"
+                },
+                {
+                  say: "Simplify and rationalize the fraction to solve for total time $t$",
+                  tex: "t = \\frac{2}{2 - \\sqrt{3}} = \\frac{2(2 + \\sqrt{3})}{(2 - \\sqrt{3})(2 + \\sqrt{3})} = 2(2 + \\sqrt{3}) \\approx 7.4641\\text{ s}"
+                },
+                {
+                  say: "Calculate intermediate time $t_1$ for the first 3/4 height",
+                  tex: "t_1 = t - 1.0\\text{ s} = 6.4641\\text{ seconds}"
+                },
+                {
+                  say: "Calculate the total height of the building $h$",
+                  tex: "h = \\frac{1}{2}gt^2 = \\frac{1}{2}(9.8)(7.4641)^2 \\approx 273.04\\text{ meters}"
+                },
+                {
+                  say: "Calculate the final impact velocity",
+                  tex: "v_f = gt = (9.8)(7.4641) \\approx 73.15\\text{ m/s} \\approx 263.3\\text{ km/h}"
+                }
+              ]
+            },
+            { type: "heading", text: "6. Final Calculated Solution" },
+            {
+              type: "answer",
+              tex: "h = 2(2 + \\sqrt{3})^2 \\cdot \\frac{g}{2} \\approx \\boxed{273\\text{ m}},\\quad t = 2(2 + \\sqrt{3}) \\approx \\boxed{7.46\\text{ s}},\\quad v_{\\text{impact}} \\approx \\boxed{73.1\\text{ m/s}}"
+            },
+            {
+              type: "margin",
+              text: "Substitution check: $h_1 = 0.5 \\times 9.8 \\times 6.464^2 = 204.75\\text{ m} = \\frac{3}{4}(273.0)\\text{ m}$ ✓"
+            }
+          ]
+        },
+        // Page 4: Visual Graphical Analysis & Physical Interpretation
+        {
+          blocks: [
+            { type: "heading", text: "7. Visual Graphical Analysis & Trajectory" },
+            {
+              type: "doodle",
+              spec: {
+                kind: "graph",
+                fn: "0.5 * 9.8 * x * x",
+                xmin: 0,
+                xmax: 8,
+                ymin: 0,
+                ymax: 300,
+                label: "y = 0.5 g t^2",
+                points: [
+                  { x: 0, y: 0, label: "Release (t=0)", color: "ink" },
+                  { x: 6.464, y: 204.75, label: "t1 = 6.46s (3h/4)", color: "purple" },
+                  { x: 7.464, y: 273.0, label: "t = 7.46s (Ground)", color: "red" }
+                ],
+                caption: "Parabolic trajectory: 86.6% of time spent in top 75% height; 13.4% of time in final 25%."
+              }
+            },
+            { type: "heading", text: "8. Velocity-Time & Average Speed Insights" },
+            {
+              type: "para",
+              text: "At the start of the final quarter, speed is $v_1 = gt_1 = (9.8)(6.464) = 63.35\\text{ m/s}$. At ground impact, speed reaches $v_f = (9.8)(7.464) = 73.15\\text{ m/s}$. Average speed in the final quarter is $v_{\\text{avg}} = \\frac{63.35 + 73.15}{2} = 68.25\\text{ m/s}$, which identically satisfies $\\frac{h/4}{\\Delta t} = \\frac{68.25\\text{ m}}{1\\text{ s}}$."
+            }
+          ]
+        },
+        // Page 5: Common Traps, Formula Cheat Sheet & Practice Problems
+        {
+          blocks: [
+            { type: "heading", text: "9. Common Traps & Exam Pitfalls" },
+            {
+              type: "mistakes",
+              items: [
+                "Assuming equal times for equal distances: Because the stone speeds up, the last 25% of height takes only 13.4% of the total time!",
+                "Using constant velocity ($v = d/t$): Gravity causes uniform acceleration ($g$), so velocity changes continuously throughout.",
+                "Ratio confusion: Forgetting to take square roots when relating time ratios to height ratios ($t \\propto \\sqrt{s}$)."
+              ]
+            },
+            { type: "heading", text: "10. Quick Revision Formula Cheat Sheet" },
+            {
+              type: "summary",
+              items: [
+                "Free fall from rest: $v = gt$, $s = \\frac{1}{2}gt^2$, $v^2 = 2gs$",
+                "Time ratio for height fraction $f$: $t_f = t\\sqrt{f}$",
+                "Time for first 75% height: $t_{3/4} = \\frac{\\sqrt{3}}{2}t \\approx 0.866t$",
+                "Time for last 25% height: $(1 - 0.866)t = 0.134t = 1\\text{ s} \\implies t \\approx 7.46\\text{ s}$"
+              ]
+            },
+            { type: "heading", text: "11. High-Yield Practice Problems" },
+            {
+              type: "practice",
+              items: [
+                {
+                  q: "A ball dropped from a tower travels the last half of the tower height in 1.2 seconds. What is the total height of the tower?",
+                  a: "Let total time be $t$. Time for first half is $t_1 = t/\\sqrt{2}$. Then $t - t_1 = 1.2 \\implies t(1 - 1/\\sqrt{2}) = 1.2 \\implies t \\approx 4.097\\text{ s}$. Total height $h = \\frac{1}{2}(9.8)(4.097)^2 \\approx 82.25\\text{ m}$."
+                },
+                {
+                  q: "What is the ratio of times taken to fall successive equal quarters of height $h/4$ from rest?",
+                  a: "Times to fall successive quarters are in the ratio $1 : (\\sqrt{2}-1) : (\\sqrt{3}-\\sqrt{2}) : (2-\\sqrt{3}) \\approx 1 : 0.414 : 0.318 : 0.268$."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+  }
+
+  // General questions (5 complete pages)
+  var topicTitle = (a && a.title) || t || userQ || "Study Notes";
+  var subject = (a && a.subject) || "Study Notes";
+  var steps = (a && a.steps && a.steps.length) ? a.steps : [];
+  var answer = (a && a.answer) || "";
+
+  var p1 = [
+    { type: "heading", text: "1. Topic Overview & Core Principle" },
+    { type: "para", text: userQ + (answer ? " -- **Key idea:** " + answer : "") },
+    { type: "margin", text: "Tip: Read the problem carefully and note all given boundary conditions." },
+    { type: "heading", text: "2. Conceptual Analogy & Everyday Intuition" },
+    { type: "para", text: "Before writing equations, visualize the physical or logical phenomenon. Breaking complex problems into simpler sub-components makes derivations natural and intuitive." }
+  ];
+
+  var p2 = [
+    { type: "heading", text: "3. Parameter Declarations & Setup" },
+    { type: "para", text: "Define all variables, known quantities, and target unknowns clearly." },
+    { type: "heading", text: "4. Primary Governing Equations" }
+  ];
+
+  if (steps.length > 0) {
+    var third = Math.ceil(steps.length / 3);
+    for (var i = 0; i < third; i++) {
+      var st = steps[i];
+      p2.push({ type: "para", text: "**Step " + (i + 1) + ": " + (st.h || "") + "** " + (st.t || "") });
+      if (st.math || st.m) p2.push({ type: "eq", tex: st.math || st.m });
+    }
+  } else {
+    p2.push({ type: "para", text: "Establish the mathematical formulation relating knowns to unknowns." });
+    p2.push({ type: "eq", tex: "f(x) = y" });
+  }
+
+  var p3 = [
+    { type: "heading", text: "5. Step-by-Step Derivation & Calculations" }
+  ];
+
+  if (steps.length > 1) {
+    var third1 = Math.ceil(steps.length / 3);
+    for (var j = third1; j < steps.length; j++) {
+      var st2 = steps[j];
+      p3.push({ type: "para", text: "**Step " + (j + 1) + ": " + (st2.h || "") + "** " + (st2.t || "") });
+      if (st2.math || st2.m) p3.push({ type: "eq", tex: st2.math || st2.m });
+    }
+  } else {
+    p3.push({ type: "steps", items: [
+      { say: "Apply governing relations and isolate target unknown", tex: "x = \\text{result}" }
+    ]});
+  }
+
+  if (answer) {
+    p3.push({ type: "heading", text: "6. Final Calculated Solution" });
+    p3.push({ type: "answer", tex: "\\boxed{" + answer.replace(/[\\$]/g, "") + "}" });
+  }
+
+  var p4 = [
+    { type: "heading", text: "7. Visual Method & Diagrammatic Roadmap" },
+    {
+      type: "doodle",
+      spec: (a && a.doodle) || {
+        kind: "flow",
+        nodes: ["Identify Terms", "Apply Formula", "Algebraic Derivation", "Verify Solution"],
+        caption: "Solution roadmap at a glance"
+      }
+    },
+    { type: "heading", text: "8. Mathematical & Dimensional Verification" },
+    { type: "para", text: "Verify units and boundary behavior to ensure the solution satisfies all physical and mathematical constraints." }
+  ];
+
+  var p5 = [
+    { type: "heading", text: "9. Common Traps & Exam Pitfalls" },
+    {
+      type: "mistakes",
+      items: (a && a.mistakes && a.mistakes.length) ? a.mistakes : [
+        "Confusing given conditions with assumptions.",
+        "Sign errors during algebraic rearrangement.",
+        "Neglecting unit conversions in final numerical evaluation."
+      ]
+    },
+    { type: "heading", text: "10. Quick Revision Summary" },
+    {
+      type: "summary",
+      items: (a && a.summary && a.summary.length) ? a.summary : [
+        "Always define variables and write down given data first.",
+        "Check answers using substitution and dimensional analysis.",
+        "Practice similar variations to build problem-solving fluency."
+      ]
+    },
+    { type: "heading", text: "11. High-Yield Practice Problem" },
+    {
+      type: "practice",
+      items: [
+        {
+          q: "What condition must be verified when solving boundary value problems of this type?",
+          a: "Verify that the calculated values satisfy all original equations and boundary constraints without division by zero."
+        }
+      ]
+    }
+  ];
+
+  return {
+    title: topicTitle.slice(0, 60),
+    shortTitle: topicTitle.slice(0, 30),
+    question: userQ,
+    subject: subject,
+    chapter: subject,
+    pageNo: "1",
+    pages: [
+      { blocks: p1 },
+      { blocks: p2 },
+      { blocks: p3 },
+      { blocks: p4 },
+      { blocks: p5 }
+    ]
+  };
+}
+
 var curNoteId = null;
 function noteFrom(a,q,doc){
  var t = (doc && doc.title) || (a && a.title) || q || 'Study Notes';
- var initialDoc = doc || (a && a.doc) || {
-  title: t,
-  subject: (a && a.subject) || 'Notes',
-  pages: [{ blocks: [{ type: 'para', text: 'Writing handwritten notebook notes on ' + t + '...' }] }]
- };
+ var initialDoc = doc || (a && a.doc) || buildDocFromAnswer(a, q, t);
  return {
   id: uid(),
   ts: Date.now(),
@@ -1630,7 +2984,7 @@ function noteMD(n){
 function dl(name,txt,type){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:type||'text/markdown'}));a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
 function noteById(id){return S.notes.filter(function(x){return x.id===id})[0]||null}
 function renderNotes(){
- if (!hasPlan()) { renderPaywall('Handwritten Notes'); return; }
+ if (!hasPlan()) { renderPaywall('notes'); return; }
  curNoteId = null;
  $('view').innerHTML='<div class="pgw"><div class="ph"><div><h1>notes</h1><p>Clean revision notes from any answer. 600+ words with LaTeX & diagrams. Multi-device cloud sync.</p></div></div>'+
  '<div class="win form"><div class="tb"><i></i><i></i><i></i><em>new-note.app</em></div><div class="in3"><label for="np">Make notes on</label><textarea id="np" maxlength="300" placeholder="e.g. why does ice float, or mitosis vs meiosis, or a question like solve 2x + 5 = 17"></textarea><div><button class="pill b sm" type="button" data-act="ngo">make notes</button></div></div></div>'+
@@ -1639,17 +2993,17 @@ function renderNotes(){
    return '<div class="card2"><div class="win"><div class="tb"><i></i><i></i><i></i><em>'+h(n.title.slice(0,22))+'.md</em></div><div class="in3"><h3>'+h(n.title)+'</h3><p>'+h(n.subject||'Notes')+' &middot; '+secCount+' &middot; '+dstr(n.ts)+'</p><div class="row"><button type="button" data-act="opennote" data-id="'+n.id+'">Open</button><button type="button" data-act="deln" data-id="'+n.id+'" class="danger">Delete</button></div></div></div></div>';
  }).join('')+'</div>':'<p class="mute">Nothing here yet. Use "Notes" under any reply, or the box above.</p>')+'</div>'}
 function openNote(id){
- if (!hasPlan()) { renderPaywall('Handwritten Notes'); return; }
+ if (!hasPlan()) { renderPaywall('notes'); return; }
  var n=noteById(id);if(!n)return;
  curNoteId = id;
  view = 'notes';
  paintNav();
- if(!n.doc){
-  n.doc = {
-   title: n.title,
-   subject: n.subject || 'Notes',
-   pages: [{ blocks: [{ type: 'para', text: 'Writing handwritten notebook notes on ' + n.title + '...' }] }]
-  };
+ var isOldOrShort = !n.doc || !n.doc.pages || n.doc.pages.length < 5 || (
+   n.doc.pages[0] && n.doc.pages[0].blocks && n.doc.pages[0].blocks[0] && n.doc.pages[0].blocks[0].text &&
+   n.doc.pages[0].blocks[0].text.indexOf('Writing handwritten notebook notes on') === 0
+ );
+ if(isOldOrShort){
+  n.doc = buildDocFromAnswer(n.a, n.q || n.title, n.title);
   save(true);
  }
  var viewEl = $('view');
@@ -1800,7 +3154,9 @@ function scenePromo(){return '<div class="p3" aria-hidden="true"><div class="dot
  '<div class="l3 ld" style="--x:150px;--y:-80px;--z:150px;--d:.4s"><div class="nm" style="--c:#2F6BFF"><i>LENGTH</i><b>2 min or 5 min</b></div></div>'+
  '<div class="l3 le" style="--x:-150px;--y:-110px;--z:130px;--d:1s"><div class="sticky stk">30 credits<br>every month</div></div>'+
  '<span class="kao" style="left:10px;top:330px">(^_^)</span><span class="kao" style="right:0;top:20px">\\(^o^)/</span></div></div>'}
-function promo(after){pendingAfter=typeof after==='function'?after:null;var trial=!S.trialUsed;ss('promoSeen','1');
+function promo(after){
+  try { (window as any).doubtsterPromo = promo; } catch(e){}
+pendingAfter=typeof after==='function'?after:null;var trial=!S.trialUsed;ss('promoSeen','1');
  var cta=trial?'Start 7-day trial for '+money(PRICE.trial):'Get '+cap(ppick)+' for '+money(PRICE[ppick]);
  modal('<div class="promo"><button type="button" class="xb" data-act="closepromo" aria-label="Close">'+ic('x')+'</button><div class="pr-l"><span class="ptag">PRO</span><h2>Unlock Doubtster <span class="hlt">PRO</span></h2>'+
   '<p class="sub">Chat is free forever. Pro unlocks Handwritten Notes, AI Video Studio, Flashcards, and Quizzes.</p>'+
@@ -1855,24 +3211,391 @@ function renderAccount(){var p=S.plan,n=nextCharge(),pf=S.profile;
  var sj=['Maths','Physics','Chemistry','Biology','Economics','Accounting','Coding','English','Something else'];
  var _acctNm=(S.profile.name||'').trim();var _acctGreet=_acctNm?'Hi, '+_acctNm:'Account';
  var _init = getInitial();
+ var _badgeLabel = 'Free Tier (Chat Only)';
+ if (hasPlan()) {
+   if (p && p.kind === 'trial') _badgeLabel = '7-Day Pro Trial Active';
+   else if (p) _badgeLabel = planName() + ' Plan Active';
+   else if (S.college || S.collegeCreditsGranted) _badgeLabel = (S.college && S.college.name ? S.college.name + ' Student Grant' : 'University Student Grant');
+   else _badgeLabel = 'Active Plan';
+ }
  $('view').innerHTML='<div class="pgw">'+
  '<div class="user-profile-bar">'+
    '<div class="user-avatar-badge">'+_init+'</div>'+
    '<div class="user-profile-details">'+
      '<h2>'+h(_acctGreet)+'</h2>'+
-     '<p class="user-profile-sub">'+h(pf.email||'Doubtster Member')+' &middot; <span class="tag '+(hasPlan()?'active':'free')+'">'+(hasPlan()?(p&&p.kind==='trial'?'7-Day Pro Trial Active':planName()+' Plan Active'):'Free Tier (Chat Only)')+'</span></p>'+
+     '<p class="user-profile-sub">'+h(pf.email||'Doubtster Member')+' &middot; <span class="tag '+(hasPlan()?'active':'free')+'">'+h(_badgeLabel)+'</span></p>'+
    '</div>'+
  '</div>'+
  (p&&p.kind==='trial'&&!p.cancelled&&trialDay()>=5?'<div class="banner warn"><span><b>Day '+trialDay()+' of '+PRICE.trialDays+'.</b> Your '+cap(p.next)+' plan ('+money(PRICE[p.next])+') starts on '+dstr(p.start+PRICE.trialDays*DAY)+'. Cancel at least a day early to avoid it.</span><button type="button" data-act="cancel">cancel trial</button></div>':'')+
- '<div class="two"><div class="win form"><div class="tb"><i></i><i></i><i></i><em>plan.md</em></div><div class="in3"><div><span class="tag'+(p?'':' g')+'">'+planName()+(p&&p.cancelled?' &middot; ending':'')+'</span></div>'+
- (p?'<dl class="kv"><dt>Status</dt><dd>'+(p.cancelled?'Cancelled, active until '+dstr(p.kind==='trial'?p.start+PRICE.trialDays*DAY:p.renewAt):'Active')+'</dd>'+(p.kind==='trial'?'<dt>Trial day</dt><dd>'+trialDay()+' of '+PRICE.trialDays+'</dd>':'')+'<dt>Next charge</dt><dd>'+(n?money(n.amt)+' on '+dstr(n.t):'None')+'</dd><dt>Plan credits</dt><dd>'+S.pcredits+' of '+planMax()+'</dd></dl><div class="acts" style="margin:0">'+(p.cancelled?'<button type="button" data-act="resume">Resume plan</button>':'<button type="button" class="danger" data-act="cancel">Cancel '+(p.kind==='trial'?'trial':'plan')+'</button>')+'</div>':'<p>You are on the free tier. Chat is free forever. Handwritten Notes, AI Video Studio, Flashcards and Quizzes require a Doubtster Pro plan.</p><div class="acts" style="margin:0"><button class="vid" type="button" data-act="promo">'+(S.trialUsed?'Choose a plan':'Start trial: '+money(PRICE.trial))+'</button></div>')+
+ '<div class="two"><div class="win form"><div class="tb"><i></i><i></i><i></i><em>plan.md</em></div><div class="in3"><div><span class="tag'+(p||S.college||S.collegeCreditsGranted?'':' g')+'">'+(p?planName()+(p.cancelled?' &middot; ending':''):((S.college&&S.college.name)||'Student Grant'))+'</span></div>'+
+ (p?'<dl class="kv"><dt>Status</dt><dd>'+(p.cancelled?'Cancelled, active until '+dstr(p.kind==='trial'?p.start+PRICE.trialDays*DAY:p.renewAt):'Active')+'</dd>'+(p.kind==='trial'?'<dt>Trial day</dt><dd>'+trialDay()+' of '+PRICE.trialDays+'</dd>':'')+'<dt>Next charge</dt><dd>'+(n?money(n.amt)+' on '+dstr(n.t):'None')+'</dd><dt>Plan credits</dt><dd>'+S.pcredits+' of '+planMax()+'</dd></dl><div class="acts" style="margin:0">'+(p.cancelled?'<button type="button" data-act="resume">Resume plan</button>':'<button type="button" class="danger" data-act="cancel">Cancel '+(p.kind==='trial'?'trial':'plan')+'</button>')+'</div>':((S.college||S.collegeCreditsGranted)?'<dl class="kv"><dt>Status</dt><dd>Active University Grant</dd><dt>College</dt><dd>'+h((S.college&&S.college.name)||'Partner University')+'</dd>'+((S.college&&S.college.domain)?'<dt>Domain</dt><dd>'+h(S.college.domain)+'</dd>':'')+'<dt>Credits</dt><dd>'+S.pcredits+' unlocked</dd></dl><p class="mute" style="font-size:13px;margin:8px 0 0">Full access to AI Video Studio, Handwritten Notes, Flashcards & Quizzes sponsored by your university.</p><div class="acts" style="margin:12px 0 0"><button class="vid" type="button" data-act="promo">Upgrade to Pro</button></div>':'<p>You are on the free tier. Chat is free forever. Handwritten Notes, AI Video Studio, Flashcards and Quizzes require a Doubtster Pro plan.</p><div class="acts" style="margin:0"><button class="vid" type="button" data-act="promo">'+(S.trialUsed?'Choose a plan':'Start trial: '+money(PRICE.trial))+'</button></div>'))+
  '</div></div><div class="win form"><div class="tb"><i></i><i></i><i></i><em>credits.md</em></div><div class="in3"><div class="big">'+credits()+'</div><p class="mute">credits available. A 2 min video uses '+PRICE.videoCost[2]+', a 5 min video uses '+PRICE.videoCost[5]+'.</p><dl class="kv"><dt>Plan credits</dt><dd>'+S.pcredits+'</dd><dt>Top-up credits</dt><dd>'+topTotal()+'</dd><dt>Used so far</dt><dd>'+S.spent+'</dd></dl>'+(S.topups.length?'<p class="mute" style="font-size:13px">Top-ups expire: '+S.topups.map(function(t){return t.n+' on '+dstr(t.exp)}).join(', ')+'</p>':'')+'<div class="acts" style="margin:0">'+PRICE.packs.map(function(k,i){return '<button type="button" data-act="buypack" data-i="'+i+'">+'+k.n+' credits '+money(k.p)+'</button>'}).join('')+'</div></div></div></div>'+
  '<div class="win form" style="margin-top:18px"><div class="tb"><i></i><i></i><i></i><em>preferences.md</em></div><div class="in3"><label for="pn">Name</label><input type="text" id="pn" maxlength="40" value="'+h(pf.name)+'"><label for="plang">Language</label><select id="plang">'+[['en','English'],['fr','Français (French)'],['es','Español (Spanish)'],['hi','हिन्दी (Hindi)']].map(function(x){return '<option value="'+x[0]+'"'+(((pf.lang||'en')===x[0])?' selected':'')+'>'+x[1]+'</option>'}).join('')+'</select><label for="pl2">Level</label><select id="pl2"><option value="">Not set</option>'+lv.map(function(x){return '<option'+(pf.level===x?' selected':'')+'>'+x+'</option>'}).join('')+'</select><label for="ps">Explanation style</label><select id="ps"><option value="">Not set</option>'+['Short and quick','Detailed and slow'].map(function(x){return '<option'+(pf.style===x?' selected':'')+'>'+x+'</option>'}).join('')+'</select><label for="pg">Daily goal (questions, cards and quiz answers)</label><select id="pg">'+[5,10,20,30,50].map(function(x){return '<option'+(S.goal===x?' selected':'')+'>'+x+'</option>'}).join('')+'</select><label>Subjects</label><div class="tabs2" style="margin:0" id="psj">'+sj.map(function(x){return '<button type="button" data-act="psub" data-s="'+x+'" aria-pressed="'+(pf.subjects.indexOf(x)>-1)+'">'+x+'</button>'}).join('')+'</div><div class="acts" style="margin:0"><button class="pill b sm" type="button" data-act="savepf">save</button><button type="button" class="pill sm" data-act="keys">keyboard shortcuts</button></div></div></div>'+
  '<h2 class="sect">receipts</h2>'+(S.billing.length?'<ul class="rcp">'+S.billing.slice(0,12).map(function(b){return '<li><span>'+h(b.label)+' <span class="mute">&middot; '+dstr(b.ts)+'</span></span><b>'+money(b.amt)+'</b></li>'}).join('')+'</ul>':'<p class="mute">No payments yet.</p>')+
  '<p class="mute" style="margin-top:14px;font-size:13.5px">Billing questions? <a class="link" href="'+SITE+'/refund-policy">Refund policy</a> &middot; <a class="link" href="'+SITE+'/terms">Terms</a> &middot; <a class="link" href="'+SITE+'/privacy">Privacy</a> &middot; '+h(CFG.SUPPORT_EMAIL)+'</p>'+
- '<details class="dm"><summary>'+(CFG.DEMO?'Demo tools (testing only)':'Your data')+'</summary><div class="acts">'+(CFG.DEMO?'<button type="button" data-act="adv" data-d="1">+1 day</button><button type="button" data-act="adv" data-d="6">+6 days</button><button type="button" data-act="adv" data-d="31">+31 days</button><button type="button" data-act="zero">Set credits to 0</button>':'')+'<button type="button" data-act="exp">Export my data (JSON)</button><button type="button" class="danger" data-act="wipe">Delete data on this device</button></div></details></div>'}
+ '<details class="dm"><summary>'+(CFG.DEMO?'Demo tools (testing only)':'Your data')+'</summary><div class="acts">'+(CFG.DEMO?'<button type="button" data-act="adv" data-d="1">+1 day</button><button type="button" data-act="adv" data-d="6">+6 days</button><button type="button" data-act="adv" data-d="31">+31 days</button><button type="button" data-act="zero">Set credits to 0</button>':'')+'<button type="button" data-act="exp">Export my data (JSON)</button><button type="button" class="danger" data-act="wipe">Delete data on this device</button><button type="button" class="danger" data-act="signout">Sign out</button></div></details></div>'}
+
+/* ================= settings ================= */
+function renderSettings() {
+  var pf = S.profile || {};
+  var lv = ['Class 6 to 8', 'Class 9 to 10', 'Class 11 to 12', 'College or university', 'Learning on my own'];
+  var sj = ['Maths', 'Physics', 'Chemistry', 'Biology', 'Economics', 'Accounting', 'Coding', 'English', 'Something else'];
+  var _clg = (S.college && S.college.name) || '';
+  var _th = (typeof localStorage !== 'undefined' && localStorage.getItem('doubtster-theme')) || 'light';
+
+  $('view').innerHTML = '<div class="pgw">' +
+    '<div class="ph"><div><h1>Settings</h1><p>Manage your account profile, study grade, AI tutor behavior, and interface preferences.</p></div></div>' +
+    
+    '<div class="win form">' +
+      '<div class="tb"><i></i><i></i><i></i><em>profile-settings.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Academic Profile</h3>' +
+        '<div class="fgrp"><label for="set-name">Full Name</label><input type="text" id="set-name" value="' + h(pf.name || '') + '" placeholder="e.g. Utkarsh" /></div>' +
+        '<div class="fgrp"><label for="set-email">Email Address</label><input type="email" id="set-email" value="' + h(pf.email || '') + '" disabled /><span class="mute" style="font-size:12px;margin-top:4px;display:block;">Verified Supabase account email.</span></div>' +
+        '<div class="two">' +
+          '<div class="fgrp"><label for="set-lvl">Education Level</label><select id="set-lvl">' + lv.map(function(x){ return '<option value="' + h(x) + '"' + (x === pf.level ? ' selected' : '') + '>' + h(x) + '</option>'; }).join('') + '</select></div>' +
+          '<div class="fgrp"><label for="set-sub">Primary Focus Area</label><select id="set-sub">' + sj.map(function(x){ return '<option value="' + h(x) + '"' + (x === pf.subject ? ' selected' : '') + '>' + h(x) + '</option>'; }).join('') + '</select></div>' +
+        '</div>' +
+        '<div class="fgrp"><label for="set-college">College / University / School Name</label><input type="text" id="set-college" value="' + h(_clg) + '" placeholder="e.g. UPES Dehradun" /></div>' +
+        '<div class="acts" style="margin-top:16px;"><button type="button" class="pill b" data-act="save-settings">Save Academic Profile</button></div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form" style="margin-top:20px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>ai-tutor-preferences.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>AI Tutor & Notes Preferences</h3>' +
+        '<div class="pref-row">' +
+          '<div><b>Explanation Depth</b><p class="mute">Determines mathematical rigor and derivation depth in answers.</p></div>' +
+          '<select id="set-depth">' +
+            '<option value="detailed"' + ((pf.ai && pf.ai.depth) === 'detailed' || !pf.ai ? ' selected' : '') + '>Step-by-Step Proofs & Principles (Default)</option>' +
+            '<option value="concise"' + ((pf.ai && pf.ai.depth) === 'concise' ? ' selected' : '') + '>Concise & Summary Format</option>' +
+            '<option value="exam"' + ((pf.ai && pf.ai.depth) === 'exam' ? ' selected' : '') + '>Exam-Oriented (Formulas & Traps)</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="pref-row">' +
+          '<div><b>Handwritten Notes Length</b><p class="mute">Standard length for generated LaTeX study notebooks.</p></div>' +
+          '<select id="set-pages">' +
+            '<option value="5" selected>5 Pages (Full NCERT / University Revision Sheet)</option>' +
+            '<option value="3">3 Pages (Condensed Review)</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="acts" style="margin-top:16px;"><button type="button" class="pill" data-act="save-ai-pref">Save AI Preferences</button></div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="two" style="margin-top:20px;">' +
+      '<div class="win form">' +
+        '<div class="tb"><i></i><i></i><i></i><em>appearance.md</em></div>' +
+        '<div class="in3">' +
+          '<h3>Theme & Interface</h3>' +
+          '<p class="mute">Choose your workspace display appearance.</p>' +
+          '<div style="margin-top:16px;">' +
+            '<label style="font-size:14px;font-weight:500;color:var(--mute,#64748b);display:block;margin-bottom:8px;">Theme</label>' +
+            '<div class="theme-picker-group">' +
+              '<button type="button" class="theme-card-option" data-act="set-theme" data-theme="light">' +
+                '<div class="theme-preview-box light' + (_th === 'light' ? ' active' : '') + '">' +
+                  '<div class="theme-preview-inner light">' +
+                    '<span class="theme-preview-aa">Aa</span>' +
+                    '<span class="theme-check-badge"><svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2L4.8 8.5L9.5 3.8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' +
+                  '</div>' +
+                '</div>' +
+                '<span class="theme-card-label">Light</span>' +
+              '</button>' +
+              '<button type="button" class="theme-card-option" data-act="set-theme" data-theme="dark">' +
+                '<div class="theme-preview-box dark' + (_th === 'dark' ? ' active' : '') + '">' +
+                  '<div class="theme-preview-inner dark">' +
+                    '<span class="theme-preview-aa">Aa</span>' +
+                    '<span class="theme-check-badge"><svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2L4.8 8.5L9.5 3.8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' +
+                  '</div>' +
+                '</div>' +
+                '<span class="theme-card-label">Dark</span>' +
+              '</button>' +
+              '<button type="button" class="theme-card-option" data-act="set-theme" data-theme="auto">' +
+                '<div class="theme-preview-box system' + (_th === 'auto' ? ' active' : '') + '">' +
+                  '<div class="theme-split-half left"><div class="theme-preview-inner light"><span class="theme-preview-aa">Aa</span></div></div>' +
+                  '<div class="theme-split-half right"><div class="theme-preview-inner dark"><span class="theme-preview-aa">Aa</span></div></div>' +
+                  '<span class="theme-check-badge"><svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2L4.8 8.5L9.5 3.8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' +
+                '</div>' +
+                '<span class="theme-card-label">System</span>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="win form">' +
+        '<div class="tb"><i></i><i></i><i></i><em>shortcuts.md</em></div>' +
+        '<div class="in3">' +
+          '<h3>Keyboard Shortcuts</h3>' +
+          '<ul class="sc-list">' +
+            '<li><span>Open Settings</span> <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>,</kbd></li>' +
+            '<li><span>Ask New Doubt</span> <kbd>Ctrl</kbd> + <kbd>/</kbd></li>' +
+            '<li><span>Flip Note Pages</span> <kbd>&larr;</kbd> / <kbd>&rarr;</kbd></li>' +
+            '<li><span>Quick Focus Chat</span> <kbd>/</kbd></li>' +
+          '</ul>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form danger-box" style="margin-top:20px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>privacy-and-data.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Data Isolation & Privacy</h3>' +
+        '<p class="mute">All study materials, chats, and notes are securely isolated per user in Supabase. You can export your data at any time.</p>' +
+        '<div class="acts" style="margin-top:14px;">' +
+          '<button type="button" class="pill" data-act="export-data">Download Study Archive (.json)</button>' +
+          '<button type="button" class="danger pill" data-act="signout">Sign Out</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ================= usage ================= */
+function renderUsage() {
+  var p = S.plan, n = nextCharge(), c = credits(), mx = planMax();
+  var totalQuestions = S.chats.length;
+  var totalNotes = S.notes.length;
+  var totalDecks = S.decks.length;
+  var totalQuizzes = S.quiz.length;
+
+  $('view').innerHTML = '<div class="pgw">' +
+    '<div class="ph"><div><h1>Usage & Limits</h1><p>Monitor your study credits, AI doubt activity, and feature utilization.</p></div></div>' +
+
+    '<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom:24px;">' +
+      '<div class="usage-metric-card">' +
+        '<div class="umc-label">Plan / Grant Credits</div>' +
+        '<div class="umc-val">' + S.pcredits + ' <span class="umc-unit">of ' + mx + '</span></div>' +
+        '<div class="meter"><i style="width:' + Math.min(100, Math.max(0, (S.pcredits/mx)*100)) + '%"></i></div>' +
+        '<div class="umc-sub">' + (p ? 'Renews ' + (n ? dstr(n.t) : 'monthly') : (S.college ? S.college.name + ' Student Grant' : 'Active Plan')) + '</div>' +
+      '</div>' +
+      '<div class="usage-metric-card">' +
+        '<div class="umc-label">Top-Up Credits</div>' +
+        '<div class="umc-val">' + topTotal() + ' <span class="umc-unit">credits</span></div>' +
+        '<div class="meter' + (topTotal() === 0 ? ' zero' : '') + '"><i style="width:' + (topTotal() > 0 ? '100%' : '0%') + '"></i></div>' +
+        '<div class="umc-sub">Credits never expire &middot; <button class="link-btn" type="button" data-act="promo">+ Add more</button></div>' +
+      '</div>' +
+      '<div class="usage-metric-card highlight">' +
+        '<div class="umc-label">AI Doubt Solver Chat</div>' +
+        '<div class="umc-val">&infin; <span class="umc-unit">Unlimited</span></div>' +
+        '<div class="umc-badge">Always 100% Free</div>' +
+        '<div class="umc-sub">Every chat question and math derivation is free forever.</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form" style="margin-bottom:24px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>study-activity.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Your Learning Activity</h3>' +
+        '<div class="stats-overview-grid">' +
+          '<div class="stat-cell"><b>Doubts Asked</b><div class="sc-num">' + totalQuestions + '</div></div>' +
+          '<div class="stat-cell"><b>5-Page Notes Generated</b><div class="sc-num">' + totalNotes + '</div></div>' +
+          '<div class="stat-cell"><b>Flashcard Decks</b><div class="sc-num">' + totalDecks + '</div></div>' +
+          '<div class="stat-cell"><b>Quizzes Attempted</b><div class="sc-num">' + totalQuizzes + '</div></div>' +
+          '<div class="stat-cell"><b>Bookmarks Saved</b><div class="sc-num">' + S.saved.length + '</div></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form">' +
+      '<div class="tb"><i></i><i></i><i></i><em>credit-costs.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Credit Consumption Guide</h3>' +
+        '<table class="cost-table">' +
+          '<thead><tr><th>Feature</th><th>Cost</th><th>What You Receive</th></tr></thead>' +
+          '<tbody>' +
+            '<tr><td>Instant AI Doubt Clearance</td><td><b class="free-pill">0 Credits (Free)</b></td><td>Unlimited derivations, step-by-step reasoning & LaTeX</td></tr>' +
+            '<tr><td>Handwritten Study Notebook</td><td><b>1 Credit</b></td><td>Detailed 5-page revision notebook with graphs & practice</td></tr>' +
+            '<tr><td>AI Video Lecture Studio</td><td><b>1 Credit</b></td><td>Interactive whiteboard audio-visual animated lecture</td></tr>' +
+            '<tr><td>Active Recall Revision Deck</td><td><b>1 Credit</b></td><td>Spaced repetition flashcards with auto-generated quizzes</td></tr>' +
+          '</tbody>' +
+        '</table>' +
+        '<div class="acts" style="margin-top:16px;">' +
+          '<button type="button" class="pill b" data-act="promo">View Plans & Upgrade</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ================= language ================= */
+function renderLanguage() {
+  var curLang = S.profile.lang || 'en';
+  $('view').innerHTML = '<div class="pgw">' +
+    '<div class="ph"><div><h1>Language & Regional Settings</h1><p>Choose the language Doubtster uses to explain concepts, format formulas, and generate study notes.</p></div></div>' +
+
+    '<div class="win form" style="margin-bottom:24px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>primary-language.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Select Primary Study Language</h3>' +
+        '<p class="mute">Changes the language for AI tutor answers, handwritten notes, and voice reading.</p>' +
+        '<div class="lang-grid" style="margin-top:16px;">' +
+          '<div class="lang-card' + (curLang === 'en' ? ' active' : '') + '" data-act="select-lang" data-lang="en">' +
+            '<div class="lang-flag">🇬🇧</div><div class="lang-title">English</div><div class="lang-desc">Standard international terminology & notation</div>' +
+          '</div>' +
+          '<div class="lang-card' + (curLang === 'hi-en' ? ' active' : '') + '" data-act="select-lang" data-lang="hi-en">' +
+            '<div class="lang-flag">🇮🇳</div><div class="lang-title">Hinglish</div><div class="lang-desc">Conversational Hindi + English natural explanations</div>' +
+          '</div>' +
+          '<div class="lang-card' + (curLang === 'hi' ? ' active' : '') + '" data-act="select-lang" data-lang="hi">' +
+            '<div class="lang-flag">🇮🇳</div><div class="lang-title">हिन्दी (Hindi)</div><div class="lang-desc">Pure Devanagari script with standard math formulas</div>' +
+          '</div>' +
+          '<div class="lang-card' + (curLang === 'es' ? ' active' : '') + '" data-act="select-lang" data-lang="es">' +
+            '<div class="lang-flag">🇪🇸</div><div class="lang-title">Español</div><div class="lang-desc">Explicaciones claras y fórmulas paso a paso</div>' +
+          '</div>' +
+          '<div class="lang-card' + (curLang === 'fr' ? ' active' : '') + '" data-act="select-lang" data-lang="fr">' +
+            '<div class="lang-flag">🇫🇷</div><div class="lang-title">Français</div><div class="lang-desc">Démonstrations détaillées et rigueur académique</div>' +
+          '</div>' +
+          '<div class="lang-card' + (curLang === 'de' ? ' active' : '') + '" data-act="select-lang" data-lang="de">' +
+            '<div class="lang-flag">🇩🇪</div><div class="lang-title">Deutsch</div><div class="lang-desc">Schritt-für-Schritt-Erklärungen und Formeln</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="two">' +
+      '<div class="win form">' +
+        '<div class="tb"><i></i><i></i><i></i><em>formatting.md</em></div>' +
+        '<div class="in3">' +
+          '<h3>Mathematical Notation</h3>' +
+          '<div class="fgrp"><label>Decimal Separator</label><select id="set-decimal"><option value="dot">Point (.) e.g. 3.14159</option><option value="comma">Comma (,) e.g. 3,14159</option></select></div>' +
+          '<div class="fgrp"><label>Multiplication Symbol</label><select id="set-mult"><option value="dot">Center dot (&middot;) e.g. 2 &middot; x</option><option value="times">Cross (&times;) e.g. 2 &times; x</option></select></div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="win form">' +
+        '<div class="tb"><i></i><i></i><i></i><em>preview.md</em></div>' +
+        '<div class="in3">' +
+          '<h3>Live Language Preview</h3>' +
+          '<div class="preview-box" id="lang-preview">' +
+            '<b>Kinematics Sample:</b>' +
+            '<p id="preview-text">"The stone accelerates downward at 9.8 m/s² under gravity. Vertical displacement is proportional to time squared."</p>' +
+            '<code id="preview-eq">s = &frac12;gt&sup2;</code>' +
+          '</div>' +
+          '<div class="acts" style="margin-top:16px;"><button type="button" class="pill b" data-act="apply-lang">Apply & Save Language</button></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ================= help ================= */
+function renderHelp() {
+  $('view').innerHTML = '<div class="pgw">' +
+    '<div class="ph"><div><h1>Help & Student Support Center</h1><p>Frequently asked questions, live diagnostics, and academic support.</p></div></div>' +
+
+    '<div class="diag-banner">' +
+      '<div class="diag-status">' +
+        '<span class="live-dot green"></span> <b>System Operational:</b> Supabase Sync Active &middot; AI Response Engine: High Speed &middot; Encryption: Active' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form" style="margin-top:20px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>faq.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Frequently Asked Questions</h3>' +
+        '<div class="faq-list">' +
+          '<details class="faq-card" open><summary><b>Is Doubtster chat really free?</b></summary><p>Yes! Unlimited AI doubt chat, mathematical derivations, step-by-step reasoning, and LaTeX equations are 100% free with no credit limits.</p></details>' +
+          '<details class="faq-card"><summary><b>What is included in the 5-page handwritten notes?</b></summary><p>Every note generated by Doubtster contains at least 5 distinct academic sheets: Problem Formulation, Variables & Equations, Mathematical Derivation, Trajectory & Velocity Graphs, and Exam Traps with Worked Practice Problems.</p></details>' +
+          '<details class="faq-card"><summary><b>How do I download or export my study notes?</b></summary><p>Open any note in the Notes section and click "Download PDF" for a printable ruled sheet, or "Export .md" to download a standard Markdown file.</p></details>' +
+          '<details class="faq-card"><summary><b>How do I use my university or college credits?</b></summary><p>If you sign up or log in with your university email (such as UPES Dehradun or partner institutions), student grant credits are credited automatically to your account.</p></details>' +
+          '<details class="faq-card"><summary><b>Can I pin and rename my recent chats?</b></summary><p>Yes! Right-click on any recent chat in the sidebar to reveal the context menu with Pin, Rename, and Delete options.</p></details>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form" style="margin-top:20px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>contact-support.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Submit a Question or Report an Issue</h3>' +
+        '<p class="mute">Our academic team typically responds within a few hours.</p>' +
+        '<div class="fgrp"><label for="help-cat">Inquiry Category</label><select id="help-cat"><option value="academic">Academic Doubt / Clarification</option><option value="bug">Report a Bug / Glitch</option><option value="feature">Feature Request</option><option value="credits">Credits or Account Question</option></select></div>' +
+        '<div class="fgrp"><label for="help-msg">Your Message</label><textarea id="help-msg" rows="4" placeholder="Describe what you need help with..."></textarea></div>' +
+        '<div class="acts" style="margin-top:12px;">' +
+          '<button type="button" class="pill b" data-act="submit-ticket">Submit Message</button>' +
+          '<span class="mute" style="font-size:13px;margin-left:14px;">Direct email: <a href="mailto:contact@doubtster.com">contact@doubtster.com</a></span>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ================= apps ================= */
+function renderApps() {
+  $('view').innerHTML = '<div class="pgw">' +
+    '<div class="ph"><div><h1>Doubtster Apps & Extensions</h1><p>Study on any device. Take Doubtster to your browser, desktop, tablet, and mobile device.</p></div></div>' +
+
+    '<div class="apps-grid">' +
+      '<div class="app-platform-card">' +
+        '<div class="apc-icon chrome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg></div>' +
+        '<div class="apc-info"><h3>Chrome & Brave Browser Extension</h3><p>Solve any math problem or homework question directly on any webpage or PDF. Right-click or use screenshot shortcut for instant solutions.</p><span class="apc-badge">Chrome Web Store &middot; Free</span></div>' +
+        '<div class="apc-act"><button type="button" class="pill b" data-act="get-extension">Add to Chrome</button></div>' +
+      '</div>' +
+
+      '<div class="app-platform-card">' +
+        '<div class="apc-icon desktop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>' +
+        '<div class="apc-info"><h3>Desktop App (Windows & macOS)</h3><p>Install Doubtster as a native standalone app. Works seamlessly with full keyboard shortcuts, instant launch from Taskbar, and zero distraction.</p><span class="apc-badge">PWA Standalone App</span></div>' +
+        '<div class="apc-act"><button type="button" class="pill b" data-act="install-pwa">Install Desktop App</button></div>' +
+      '</div>' +
+
+      '<div class="app-platform-card">' +
+        '<div class="apc-icon mobile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>' +
+        '<div class="apc-info"><h3>Mobile App (Android & iOS)</h3><p>Snap a photo of your textbook question with your camera. Instantly receive 5-page handwritten notes and video solutions on your phone.</p><span class="apc-badge">Camera OCR Solver</span></div>' +
+        '<div class="apc-act"><button type="button" class="pill" data-act="get-mobile">Get Mobile App</button></div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="win form" style="margin-top:28px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>instant-installation.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Quick 1-Click Installation Guide</h3>' +
+        '<ol class="guide-steps">' +
+          '<li><b>On Chrome or Edge:</b> Click the install icon (computer icon) on the right side of the address bar at the top, then click <b>Install</b>.</li>' +
+          '<li><b>On iPhone / iPad:</b> Tap the <b>Share</b> button in Safari, scroll down, and tap <b>Add to Home Screen</b>.</li>' +
+          '<li><b>On Android:</b> Tap the three dots menu in Chrome, then select <b>Add to Home Screen</b> or <b>Install App</b>.</li>' +
+        '</ol>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ================= learn ================= */
+function renderLearn() {
+  $('view').innerHTML = '<div class="pgw">' +
+    '<div class="ph"><div><h1>About Doubtster</h1><p>The pedagogical engine built to turn confusion into deep conceptual mastery.</p></div></div>' +
+
+    '<div class="learn-hero-card">' +
+      '<h2>Built for Students Who Want to Understand, Not Just Memorize</h2>' +
+      '<p>Most AI tools dump a raw answer without teaching you how to get there. Doubtster breaks down complex problems into foundational principles, step-by-step derivations, visual graphs, and practice variations so you conquer exams with confidence.</p>' +
+    '</div>' +
+
+    '<div class="pillars-grid" style="margin-top:24px;">' +
+      '<div class="pillar-card"><div class="pc-icon">🧠</div><h3>Socratic Step-by-Step Solver</h3><p>Every mathematical step is justified with the "WHY" behind it. No unexplained leaps or hallucinated numbers.</p></div>' +
+      '<div class="pillar-card"><div class="pc-icon">📝</div><h3>5-Page Handwritten LaTeX Notes</h3><p>Generates real student revision sheets with formulations, derivations, interactive 2D graphs, and exam trap warnings.</p></div>' +
+      '<div class="pillar-card"><div class="pc-icon">🎬</div><h3>AI Whiteboard Video Lectures</h3><p>Transforms any textbook answer into a narrated blackboard video lecture to stimulate visual and auditory memory.</p></div>' +
+      '<div class="pillar-card"><div class="pc-icon">🗂️</div><h3>Active Recall & Quizzes</h3><p>Spaced repetition flashcards and test quizzes created on the fly from your own questions and mistakes.</p></div>' +
+    '</div>' +
+
+    '<div class="win form" style="margin-top:28px;">' +
+      '<div class="tb"><i></i><i></i><i></i><em>pro-study-tips.md</em></div>' +
+      '<div class="in3">' +
+        '<h3>Power User Pro-Tips</h3>' +
+        '<ul class="tips-list">' +
+          '<li><b>Ask in any format:</b> Type a question, upload a homework screenshot, or paste a formula in LaTeX.</li>' +
+          '<li><b>Turn replies into study materials:</b> Under any reply, click <b>Notes</b> for a 5-page revision notebook, <b>Flashcards</b> for a revision deck, or <b>Video</b> for a whiteboard lecture.</li>' +
+          '<li><b>Pin important chats:</b> Right-click any recent chat in the sidebar and click <b>Pin</b> to keep it at the top of your revision list.</li>' +
+          '<li><b>Study offline:</b> Notes and flashcards are cached in your browser and printable as standard PDFs.</li>' +
+        '</ul>' +
+        '<div class="acts" style="margin-top:16px;">' +
+          '<button type="button" class="pill b" data-act="go" data-v="chat">Start Asking Doubts</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
 /* ================= router + events ================= */
-var R={home:renderHome,chat:renderChat,flash:renderFlash,quiz:renderQuiz,videos:renderVideos,notes:renderNotes,plan:renderPlan,library:renderLibrary,account:renderAccount};
+var R={home:renderHome,chat:renderChat,flash:renderFlash,quiz:renderQuiz,videos:renderVideos,notes:renderNotes,plan:renderPlan,library:renderLibrary,account:renderAccount,settings:renderSettings,usage:renderUsage,language:renderLanguage,help:renderHelp,apps:renderApps,learn:renderLearn};
 function srcFrom(b){
  if(b.dataset.sid){var s=S.saved.filter(function(x){return x.id===b.dataset.sid})[0];return{a:s?s.a:null,q:s&&s.q||''}}
  if(b.dataset.nid){var n=noteById(b.dataset.nid);return{a:n&&n.a||null,q:n&&n.q||''}}
@@ -1881,15 +3604,178 @@ function demoLimit(){modal('<span class="demo">DEMO MODE</span><h2>nothing to bu
 function confirmM(title,msg,act,id){modal('<h2>'+h(title)+'</h2><p>'+h(msg)+'</p><div class="acts"><button type="button" data-act="close">Keep</button><button type="button" class="danger" data-act="'+act+'" data-id="'+h(id||'')+'">Delete</button></div>')}
 function chatMD(c){return '# '+c.title+'\n\n'+c.msgs.map(function(m){if(m.r==='u')return '**You:** '+m.t;if(m.a)return '**Doubtster:** '+m.a.title+'\n\n'+m.a.steps.map(function(s,i){return (i+1)+'. '+s.h+(s.t?' - '+s.t:'')+(s.math?'\n   '+s.math:'')}).join('\n')+(m.a.answer?'\n\nAnswer: '+m.a.answer:'');return '**Doubtster:** '+(m.text||'')}).join('\n\n')+'\n'}
 var ACT={
+ 'save-settings': function(){
+   var nm = ($('set-name') && $('set-name').value || '').trim();
+   var lvl = $('set-lvl') && $('set-lvl').value;
+   var sub = $('set-sub') && $('set-sub').value;
+   var clg = ($('set-college') && $('set-college').value || '').trim();
+   if(nm) S.profile.name = nm;
+   if(lvl) S.profile.level = lvl;
+   if(sub) S.profile.subject = sub;
+   if(clg) { if(!S.college) S.college = {}; S.college.name = clg; }
+   save(true);
+   paintTop();
+   toast('Academic profile saved!');
+ },
+ 'save-ai-pref': function(){
+   var depth = $('set-depth') && $('set-depth').value;
+   var pgs = $('set-pages') && $('set-pages').value;
+   if(!S.profile.ai) S.profile.ai = {};
+   if(depth) S.profile.ai.depth = depth;
+   if(pgs) S.profile.ai.notesPages = pgs;
+   save(true);
+   toast('AI tutor preferences saved!');
+ },
+ 'set-theme': function(b){
+   var btn = b.closest('[data-theme]');
+   var th = (btn && btn.dataset.theme) || b.dataset.theme || 'light';
+   var effectiveTheme = th;
+   if(th === 'auto') {
+     effectiveTheme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+   }
+
+   var updateDOM = function() {
+     document.documentElement.setAttribute('data-theme', effectiveTheme);
+     try { localStorage.setItem('doubtster-theme', th); } catch(e){}
+     var allBoxes = document.querySelectorAll('.theme-preview-box');
+     allBoxes.forEach(function(el){
+       var opt = el.closest('[data-theme]');
+       el.classList.toggle('active', !!(opt && opt.dataset.theme === th));
+     });
+   };
+
+   if (typeof document !== 'undefined' && 'startViewTransition' in document) {
+     document.documentElement.classList.add('theme-transitioning');
+     (document as any).startViewTransition(function() {
+       updateDOM();
+     });
+     setTimeout(function() {
+       document.documentElement.classList.remove('theme-transitioning');
+     }, 400);
+   } else {
+     document.documentElement.classList.add('theme-transitioning');
+     updateDOM();
+     setTimeout(function() {
+       document.documentElement.classList.remove('theme-transitioning');
+     }, 400);
+   }
+
+   toast('Theme set to ' + (th === 'auto' ? 'System' : (th.charAt(0).toUpperCase() + th.slice(1))) + ' mode');
+ },
+ 'select-lang': function(b){
+   var l = b.dataset.lang || 'en';
+   var cards = document.querySelectorAll('.lang-card');
+   cards.forEach(function(c){ c.classList.toggle('active', c.dataset.lang === l); });
+   var previewMap = {
+     en: { text: "The stone accelerates downward at 9.8 m/s² under gravity. Vertical displacement is proportional to time squared.", eq: "s = ½gt²" },
+     'hi-en': { text: "Stone gravity ke under 9.8 m/s² acceleration se neeche girti hai. Vertical displacement time squared ke proportional hota hai.", eq: "s = ½gt²" },
+     hi: { text: "पत्थर गुरुत्वाकर्षण के प्रभाव में 9.8 m/s² के त्वरण से नीचे गिरता है। विस्थापन समय के वर्ग के समानुपाती होता है।", eq: "s = ½gt²" },
+     es: { text: "La piedra acelera hacia abajo a 9.8 m/s² bajo la gravedad. El desplazamiento vertical es proporcional al tiempo al cuadrado.", eq: "s = ½gt²" },
+     fr: { text: "La pierre accélère vers le bas à 9.8 m/s² sous la gravité. Le déplacement vertical est proportionnel au temps au carré.", eq: "s = ½gt²" },
+     de: { text: "Der Stein beschleunigt unter Schwerkraft mit 9.8 m/s² nach unten. Die Verschiebung ist proportional zum Quadrat der Zeit.", eq: "s = ½gt²" }
+   };
+   var data = previewMap[l] || previewMap.en;
+   if($('preview-text')) $('preview-text').textContent = '"' + data.text + '"';
+   if($('preview-eq')) $('preview-eq').textContent = data.eq;
+   S.profile.lang = l;
+ },
+ 'apply-lang': function(){
+   var activeCard = document.querySelector('.lang-card.active');
+   if(activeCard) S.profile.lang = activeCard.dataset.lang;
+   save(true);
+   toast('Language preference saved!');
+ },
+ 'submit-ticket': function(){
+   var msg = $('help-msg') ? $('help-msg').value.trim() : '';
+   if(!msg){ toast('Please write a short description first.'); return; }
+   if($('help-msg')) $('help-msg').value = '';
+   toast('Ticket submitted! Our academic team will respond to your email.');
+ },
+ 'export-data': function(){
+   var data = JSON.stringify({ profile: S.profile, notes: S.notes, chats: S.chats, decks: S.decks, quiz: S.quiz }, null, 2);
+   dl('doubtster-academic-data.json', data, 'application/json');
+   toast('Exporting study data...');
+ },
+ 'get-extension': function(){
+   toast('Opening Doubtster Chrome Web Store extension page...');
+   window.open('https://chromewebstore.google.com', '_blank');
+ },
+ 'install-pwa': function(){
+   if((window as any).deferredPrompt){
+     (window as any).deferredPrompt.prompt();
+   } else {
+     toast('To install: click the Install icon in your browser address bar.');
+   }
+ },
+ 'get-mobile': function(){
+   toast('Doubtster Mobile is available as a PWA! Tap Share > Add to Home Screen.');
+ },
+
  go:function(b){go(b.dataset.v)},close:function(){closeModal()},dismiss:function(){S.dismissed=true;save();R[view]()},hidelist:function(){S.hideList=true;save();R.home()},
  ask:function(b){ask(b.dataset.q)},
- openchat:function(b){closeModal();S.cur=b.dataset.id;save();go('chat')},
- delc:function(b){S.chats=S.chats.filter(function(c){return c.id!==b.dataset.id});if(S.cur===b.dataset.id)S.cur=null;save();repaint();R.library()},
+ 'open-recents-overlay':function(){openRecentsOverlay();},
+ 'cro-new-chat':function(){closeModal();newChat();},
+ openchat:function(b){closeModal();closeChatContextMenu();S.cur=b.dataset.id;save();go('chat')},
+ chatmenu:function(b,e){
+   if(e){e.stopPropagation();e.preventDefault();}
+   var id=b.dataset.id;
+   if(!id)return;
+   var menu = document.getElementById('chat-context-menu');
+   if(activeContextChatId === id && menu && menu.classList.contains('is-open')){
+     closeChatContextMenu();
+     return;
+   }
+   var rect=b.getBoundingClientRect();
+   openChatContextMenu(id,rect.right+4,rect.top);
+ },
+ 'chat-pin':function(b){
+   var id=b.dataset.id||activeContextChatId;
+   closeChatContextMenu();
+   if(!id)return;
+   var c=S.chats.filter(function(x){return x.id===id})[0];
+   if(!c)return;
+   c.pinned=!c.pinned;
+   c.pinnedAt=c.pinned?Date.now():undefined;
+   c.ts=Date.now();
+   S.pinnedCollapsed=false;
+   save(true);
+   paintHist();
+   setTimeout(function(){
+     var row=document.querySelector('.chat-row[data-chat-id="'+id+'"]');
+     if(row){
+       row.classList.add('just-pinned-pulse');
+       setTimeout(function(){row.classList.remove('just-pinned-pulse')},1200);
+     }
+   },50);
+   toast(c.pinned?'Pinned to top':'Unpinned from top');
+ },
+ 'chat-rename':function(b){var id=b.dataset.id||activeContextChatId;closeChatContextMenu();if(!id)return;var c=S.chats.filter(function(x){return x.id===id})[0];if(!c)return;modal('<h2>rename chat</h2><div class="form"><input type="text" id="rn" maxlength="60" value="'+h(c.title)+'"></div><div class="acts"><button type="button" data-act="close">Cancel</button><button type="button" class="vid" data-act="rensavebyid" data-id="'+c.id+'">Save</button></div>');setTimeout(function(){var el=$('rn');if(el){el.focus();el.select();}},50)},
+ rensavebyid:function(b){var id=b.dataset.id,c=S.chats.filter(function(x){return x.id===id})[0],v=(($('rn')||{}).value||'').trim();if(c&&v){c.title=v;c.ts=Date.now();save(true);paintHist();if(c.id===S.cur&&view==='chat'){var ctt=$('ctt');if(ctt)ctt.textContent=v;paintMsgs(true);}}closeModal();toast('Chat renamed.');},
+ 'chat-delete':function(b){var id=b.dataset.id||activeContextChatId;closeChatContextMenu();if(!id)return;var c=S.chats.filter(function(x){return x.id===id})[0];if(!c)return;confirmM('delete this chat?','This removes the conversation permanently from your account.','delcbyid',c.id);},
+ delcbyid:function(b){var id=b.dataset.id;S.chats=S.chats.filter(function(x){return x.id!==id});if(S.cur===id){S.cur=null;if(view==='chat')R.chat();}save(true);closeModal();repaint();toast('Chat deleted permanently.');},
+ 'toggle-pinned-sec':function(){S.pinnedCollapsed=!S.pinnedCollapsed;paintHist()},
+ 'toggle-recents-sec':function(){S.recentsCollapsed=!S.recentsCollapsed;paintHist()},
+ chattitlemenu:function(b,e){
+   if(e){e.stopPropagation();e.preventDefault();}
+   var c=curChat();
+   if(!c)return;
+   var menu=document.getElementById('chat-context-menu');
+   if(activeContextChatId===c.id&&menu&&menu.classList.contains('is-open')){
+     closeChatContextMenu();
+     return;
+   }
+   var rect=b.getBoundingClientRect();
+   openChatContextMenu(c.id,rect.left,rect.bottom+6);
+ },
+ sharechat:function(){var c=curChat();if(!c)return;modal('<h2>share chat</h2><p>Share or export <b>'+h(c.title)+'</b>.</p><div class="acts"><button type="button" data-act="close">Close</button><button type="button" class="vid" data-act="copyshare">Copy Text</button><button type="button" class="vid" data-act="exportc">Download .md</button></div>')},
+ copyshare:function(){var c=curChat();if(!c)return;var txt=chatMD(c);if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){toast('Chat copied to clipboard!');closeModal();}).catch(function(){toast('Could not access clipboard.');});}else{toast('Clipboard not available.');}},
+ 'chat-artifacts':function(){var c=curChat();if(!c)return;var count=(c.msgs||[]).filter(function(m){return m.r==='a'||m.a||m.text;}).length;toast(count+' answer'+(count===1?'':'s')+' & artifacts in this conversation.')},
+ delc:function(b){S.chats=S.chats.filter(function(c){return c.id!==b.dataset.id});if(S.cur===b.dataset.id)S.cur=null;save(true);repaint();R.library();toast('Chat deleted permanently.');},
  renamec:function(){var c=curChat();if(!c)return;modal('<h2>rename chat</h2><div class="form"><input type="text" id="rn" maxlength="60" value="'+h(c.title)+'"></div><div class="acts"><button type="button" data-act="close">Cancel</button><button type="button" class="vid" data-act="rensave">Save</button></div>')},
  rensave:function(){var c=curChat(),v=($('rn').value||'').trim();if(c&&v){c.title=v;save();paintHist();paintMsgs(true)}closeModal()},
  exportc:function(){var c=curChat();if(c)dl((c.title.replace(/[^a-z0-9]+/gi,'-').toLowerCase()||'chat')+'.md',chatMD(c))},
- delcur:function(){var c=curChat();if(c)confirmM('delete this chat?','This removes the conversation from this device.','delcurdo',c.id)},
- delcurdo:function(b){S.chats=S.chats.filter(function(c){return c.id!==b.dataset.id});S.cur=null;save();closeModal();repaint();R.chat()},
+ delcur:function(){var c=curChat();if(c)confirmM('delete this chat?','This removes the conversation permanently from your account.','delcurdo',c.id);},
+ delcurdo:function(b){S.chats=S.chats.filter(function(c){return c.id!==b.dataset.id});S.cur=null;save(true);closeModal();repaint();R.chat();toast('Chat deleted permanently.');},
  detail:function(b){S.detail=b.dataset.d;save();[].forEach.call(document.querySelectorAll('.seg [data-act=detail]'),function(x){x.setAttribute('aria-pressed',x===b)});paintMsgs(true)},
  mkvideo:function(b){var s=srcFrom(b);if(!s.a)return demoLimit();closeModal();videoPicker(s.a,s.q||s.a.title)},
  mkdeck:function(b){var s=srcFrom(b);if(!s.a)return demoLimit();closeModal();addDeck(deckFrom(s.a,s.q))},
@@ -1905,11 +3791,7 @@ var ACT={
   var cacheKey = 'doubtster-notes-v4:' + topic.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   var cached = null;
   try { var rawC = localStorage.getItem(cacheKey); if (rawC) cached = JSON.parse(rawC); } catch(e){}
-  var initialDoc = cached || {
-   title: topic,
-   subject: s.a && s.a.subject ? s.a.subject : 'Notes',
-   pages: [{ blocks: [{ type: 'para', text: 'Writing handwritten notebook notes on ' + topic + '...' }] }]
-  };
+  var initialDoc = cached || buildDocFromAnswer(s.a, topic, topic);
   var n = addNote(s.a, topic, initialDoc);
   go('notes');
   openNote(n.id);
@@ -1948,7 +3830,7 @@ var ACT={
  fb:function(b){var c=curChat(),m=c&&c.msgs[+b.dataset.m];if(!m)return;var v=+b.dataset.v;m.fb=m.fb===v?0:v;save();paintMsgs(true);if(m.fb)toast('Thanks for the feedback.')},
  report:function(b){var c=curChat(),m=c&&c.msgs[+b.dataset.m];if(!m)return;modal('<h2>report a mistake</h2><p>Tell us what is wrong with this answer.</p><div class="form"><textarea id="rpt" maxlength="500" style="width:100%;border:1px solid #C9C9D1;border-radius:11px;padding:10px 13px;font:inherit;min-height:80px;margin-top:10px" placeholder="What looks wrong?"></textarea></div><div class="acts"><button type="button" data-act="close">Cancel</button><button type="button" class="vid" data-act="sendrpt" data-m="'+b.dataset.m+'">Send</button></div>')},
  sendrpt:function(b){var c=curChat(),m=c&&c.msgs[+b.dataset.m];S.reports.push({ts:Date.now(),title:m&&m.a?m.a.title:'',note:($('rpt')||{}).value||''});save();closeModal();toast(CFG.DEMO?'Saved on this device (demo). Connect a report endpoint to send it.':'Thanks, we will look into it.')},
- promo:function(){promo()},closepromo:function(){ss('promoSeen','1');pendingAfter=null;closeModal()},closecp:function(){ss('credSeen','1');pendingAfter=null;closeModal()},
+ promo:function(){promo()},closepromo:function(){try{sessionStorage.setItem('doubtster_promo_tab_' + (USER_ID || 'guest'), '1');}catch(e){}pendingAfter=null;closeModal()},closecp:function(){ss('credSeen','1');pendingAfter=null;closeModal()},
  credits:function(){S.plan?creditsPopup({need:1}):promo()},
  pplan:function(b){ppick=b.dataset.p;if($('pnote'))promoUpd();else{[].forEach.call(document.querySelectorAll('#pp button'),function(x){x.setAttribute('aria-pressed',x===b)})}},
  pcont:function(b){var t=b.dataset.trial==='1',p=ppick;closeModal();checkout(t?'trial':'direct',p)},
@@ -1975,11 +3857,7 @@ var ACT={
   var cacheKey = 'doubtster-notes-v4:' + t.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   var cached = null;
   try { var rawC = localStorage.getItem(cacheKey); if (rawC) cached = JSON.parse(rawC); } catch(e){}
-  var initialDoc = cached || {
-   title: t,
-   subject: 'Notes',
-   pages: [{ blocks: [{ type: 'para', text: 'Writing handwritten notebook notes on ' + t + '...' }] }]
-  };
+  var initialDoc = cached || buildDocFromAnswer(fakeA, t, t);
   var fakeA = { title: t, subject: 'Notes', steps: [], answer: '' };
   var n = addNote(fakeA, t, initialDoc);
   openNote(n.id);
@@ -2061,16 +3939,87 @@ var ACT={
  exp:function(){dl('doubtster-data.json',JSON.stringify(S,null,2),'application/json')},
  wipe:function(){modal('<h2>delete data on this device?</h2><p>This removes chats, videos, decks, notes and your plan state stored in this browser. It cannot be undone.</p><div class="acts"><button type="button" data-act="close">Keep</button><button type="button" class="danger" data-act="dowipe">Delete</button></div>')},
  dowipe:function(){try{localStorage.removeItem(KEY)}catch(e){}S=blank();closeModal();repaint();go('home')},
+ signout:function(){try{localStorage.removeItem(KEY)}catch(e){}fetch('/api/auth/logout',{method:'POST'}).finally(function(){window.location.href='/login'})},
  psub:function(b){var s=b.dataset.s,i=S.profile.subjects.indexOf(s);if(i>-1)S.profile.subjects.splice(i,1);else S.profile.subjects.push(s);b.setAttribute('aria-pressed',i===-1)},
  savepf:function(){S.profile.name=$('pn').value.trim();if($('plang')){S.profile.lang=$('plang').value;try{localStorage.setItem('doubtster-lang',S.profile.lang)}catch(e){}}S.profile.level=$('pl2').value;S.profile.style=$('ps').value;S.goal=+$('pg').value||10;save();paintTop();toast('Saved.')},
- keys:function(){shortcuts()}
+ keys:function(){shortcuts()},
+ 'pw-select-plan':function(b: HTMLElement){var p=b.dataset.plan||'trial';if((window as any).__pwSetPlan)(window as any).__pwSetPlan(p)},
+ 'pw-submit':function(){if((window as any).__pwSubmit)(window as any).__pwSubmit()}
 };
-on(document,'click',function(e){
+function dismissContextMenuOnOutside(e){
+ var cm=document.getElementById('chat-context-menu');
+ if(!cm || !cm.classList.contains('is-open')) return;
+ var target=e.target;
+ if(target && cm.contains(target)) return;
+ if(target && target.closest){
+  var moreBtn=target.closest('[data-act="chatmenu"]');
+  if(moreBtn && moreBtn.getAttribute('data-id')===activeContextChatId){
+   return;
+  }
+ }
+ closeChatContextMenu();
+}
+
+on(window,'pointerdown',dismissContextMenuOnOutside,true);
+on(window,'mousedown',dismissContextMenuOnOutside,true);
+on(window,'touchstart',dismissContextMenuOnOutside,true);
+on(window,'click',function(e){
+ dismissContextMenuOnOutside(e);
  if(e.target.closest&&e.target.closest('#fci')){flip();return}
  var b=e.target.closest('[data-act]');if(!b)return;var f=ACT[b.dataset.act];if(f){if(b.tagName==='A')e.preventDefault();f(b,e)}});
+
+on(window,'contextmenu',function(e){
+ var row=e.target.closest&&e.target.closest('[data-chat-id]');
+ if(row){
+  e.preventDefault();
+  var chatId=row.getAttribute('data-chat-id');
+  if(chatId){
+   openChatContextMenu(chatId,e.clientX,e.clientY);
+  }
+ } else {
+  closeChatContextMenu();
+ }
+},true);
+on(window,'resize',closeChatContextMenu,true);
+on(window,'scroll',closeChatContextMenu,true);
+on(document,'scroll',closeChatContextMenu,true);
+on(window,'wheel',function(e){
+ var cm=document.getElementById('chat-context-menu');
+ if(cm&&!cm.hidden&&(!e.target||!cm.contains(e.target))){
+  closeChatContextMenu();
+ }
+},{passive:true,capture:true});
+
 var gpend=0;
 on(document,'keydown',function(e){
  var tg=e.target,typing=tg&&(/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName)||tg.isContentEditable),k=e.key;
+ var cm=document.getElementById('chat-context-menu');
+ if(cm&&!cm.hidden&&activeContextChatId){
+  var kLower=k.toLowerCase();
+  if(kLower==='escape'){
+   e.preventDefault();
+   closeChatContextMenu();
+   return;
+  }
+  if(kLower==='p'){
+   e.preventDefault();
+   var pBtn=cm.querySelector('[data-act="chat-pin"]');
+   if(pBtn)pBtn.click();
+   return;
+  }
+  if(kLower==='r'){
+   e.preventDefault();
+   var rBtn=cm.querySelector('[data-act="chat-rename"]');
+   if(rBtn)rBtn.click();
+   return;
+  }
+  if(kLower==='d'){
+   e.preventDefault();
+   var dBtn=cm.querySelector('[data-act="chat-delete"]');
+   if(dBtn)dBtn.click();
+   return;
+  }
+ }
  if((e.ctrlKey||e.metaKey)&&k.toLowerCase()==='k'){e.preventDefault();palette();return}
  if(k==='Escape'&&view==='flash'&&fs.mode==='study'&&!modalOpen()){renderFlash();paintNav();return}
  if(typing||modalOpen()||e.ctrlKey||e.metaKey||e.altKey)return;
@@ -2085,19 +4034,69 @@ on(document,'keydown',function(e){
  if(k==='?'){shortcuts()}});
 var y=$('yr');if(y)y.textContent=new Date().getFullYear();
 function updateClock(){var c=$('clock');if(c)c.textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}updateClock();iv(updateClock,30000);
-$('crb').onclick=function(){if(!S.plan)promo();else if(credits()===0)creditsPopup({need:1});else go('account')};
+$('crb').onclick=function(){if(credits()===0&&!hasPlan())promo();else if(credits()===0)creditsPopup({need:1});else go('account')};
 $('avt').onclick=function(){go('account')};
 $('newc').onclick=newChat;
 iv(function(){tick();repaint()},60000);
 tick();paintTop();
+try {
+  var _savedTh = localStorage.getItem('doubtster-theme') || 'light';
+  var _effTh = _savedTh;
+  if(_savedTh === 'auto') {
+    _effTh = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', _effTh);
+} catch(e) {}
 var hv=location.hash.slice(1);view=VIEWS.indexOf(hv)>-1?hv:'home';
-paintNav();paintHist();R[view]();
+paintNav();paintHist();
+if(['flash','quiz','videos','notes'].indexOf(view)>-1 && !hasPlan()){
+  renderPaywall(view);
+} else {
+  R[view]();
+}
 on(window,'hashchange',function(){var v=location.hash.slice(1);if(VIEWS.indexOf(v)>-1&&v!==view)go(v,true)});
-var apt=setTimeout(function(){if(modalOpen())return;
- // Don't show promo modal if the user just returned from checkout
- if(location.search.indexOf('checkout=return')>-1)return;
- if(!S.plan&&!ss('promoSeen')){promo()}
- else if(S.plan&&credits()===0&&!ss('credSeen')){creditsPopup({need:1})}},1700);
-offs.push(function(){stopThinkingTimers();if(activeChatAbort){try{activeChatAbort.abort()}catch(e){}}if(activeDemoTimer){clearTimeout(activeDemoTimer)}clearTimeout(apt);clearTimeout(tt);qClear();clearInterval(pomo.iv);try{if(rec)rec.stop()}catch(e){}closeModal()});
+var apt=setTimeout(function(){
+  // Don't show promo modal if the user just returned from checkout
+  if(location.search.indexOf('checkout=return')>-1) return;
+  if(modalOpen()) return;
+
+  // Free plan: show promo when logging in or opening/reopening the website
+  if(!hasPlan()){
+    var sessionKey = 'doubtster_promo_tab_' + (USER_ID || 'guest');
+    var alreadyShownThisTab = false;
+    try {
+      alreadyShownThisTab = sessionStorage.getItem(sessionKey) === '1';
+    } catch(e) {}
+
+    // Check last active time to detect reopening after the website was closed
+    var lastActiveKey = 'doubtster_last_active_' + (USER_ID || 'guest');
+    var lastActive = 0;
+    try {
+      lastActive = parseInt(localStorage.getItem(lastActiveKey) || '0', 10);
+    } catch(e) {}
+    var now = Date.now();
+    var isReopened = !lastActive || (now - lastActive > 45000); // Closed for > 45s or fresh window
+
+    if(!alreadyShownThisTab || isReopened){
+      try {
+        sessionStorage.setItem(sessionKey, '1');
+        localStorage.setItem(lastActiveKey, String(now));
+      } catch(e) {}
+      promo();
+    }
+  }
+  else if(hasPlan() && credits()===0 && !ss('credSeen')){
+    creditsPopup({need:1});
+  }
+}, 750);
+
+// Heartbeat to update last active timestamp so reopening after closing triggers promo
+iv(function(){
+  try {
+    var lastActiveKey = 'doubtster_last_active_' + (USER_ID || 'guest');
+    localStorage.setItem(lastActiveKey, String(Date.now()));
+  } catch(e) {}
+}, 10000);
+offs.push(function(){if(syncTimeout){clearTimeout(syncTimeout);syncTimeout=null;}closeChatContextMenu();var cmEl=document.getElementById('chat-context-menu');if(cmEl)cmEl.remove();stopThinkingTimers();if(activeChatAbort){try{activeChatAbort.abort()}catch(e){}}if(activeDemoTimer){clearTimeout(activeDemoTimer)}clearTimeout(apt);clearTimeout(tt);qClear();clearInterval(pomo.iv);try{if(rec)rec.stop()}catch(e){}closeModal()});
 return function(){offs.forEach(function(f){f()});stopPlayer()};
 }

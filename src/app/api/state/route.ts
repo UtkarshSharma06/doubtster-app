@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { db } from '@/lib/subscriptionDb';
 import { isPlanActive } from '@/lib/planGuard';
 import { dodo, PLAN_CREDITS, PACK_CREDITS } from '@/lib/dodo';
+import { checkCollegeDomain } from '@/lib/collegeCheck';
 
 function mergeById(existingArr: any[] = [], incomingArr: any[] = []): any[] {
   const map = new Map<string, any>();
@@ -57,6 +58,35 @@ export async function GET(request: Request) {
     }
 
     let state = data?.state || null;
+
+    // College student grant reconciliation from admin panel
+    if (!state?.collegeCreditsGranted && user.email) {
+      try {
+        const collegeRes = await checkCollegeDomain(user.email);
+        if (collegeRes.approved && collegeRes.college) {
+          const collegeCredits = Number(collegeRes.college.credits ?? 10);
+          if (!state) state = {};
+          state.pcredits = Math.max(state.pcredits || 0, collegeCredits);
+          state.collegeCreditsGranted = true;
+          state.college = {
+            id: collegeRes.college.id,
+            name: collegeRes.college.name,
+            domain: collegeRes.college.domain,
+            credits: collegeCredits,
+          };
+          await supabase.from('app_state').upsert(
+            {
+              user_id: user.id,
+              state,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id' }
+          );
+        }
+      } catch (err: any) {
+        console.warn('[state route] college check failed:', err?.message);
+      }
+    }
 
     // Check if there are any pending updates from Dodo webhooks
     const pending = db.getPendingUpdate(user.id, user.email || undefined);
@@ -182,6 +212,7 @@ export async function GET(request: Request) {
     const hasPlan = isPlanActive(state?.plan);
 
     return NextResponse.json({
+      user_id: user.id,
       state,
       user_name: displayName,
       email: user.email || '',
@@ -195,7 +226,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { state } = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || !body.state) {
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
+    }
+    const state = body.state;
     const supabase = await createClient();
     const {
       data: { user },
@@ -216,14 +251,14 @@ export async function POST(request: Request) {
     const existingState = existingData?.state || {};
     const finalState = { ...state };
 
-    // Deep merge collections by ID so chats, notes, decks, videos, and quizzes are never wiped
-    finalState.chats = mergeById(existingState.chats, state?.chats);
-    finalState.notes = mergeById(existingState.notes, state?.notes);
-    finalState.decks = mergeById(existingState.decks, state?.decks);
-    finalState.videos = mergeById(existingState.videos, state?.videos);
-    finalState.quizzes = mergeById(existingState.quizzes, state?.quizzes);
-    finalState.tasks = mergeById(existingState.tasks, state?.tasks);
-    finalState.saved = mergeById(existingState.saved, state?.saved);
+    // Authoritative client collections: save arrays directly so deletions, pins, and renames persist permanently in Supabase
+    finalState.chats = Array.isArray(state?.chats) ? state.chats : (existingState.chats || []);
+    finalState.notes = Array.isArray(state?.notes) ? state.notes : (existingState.notes || []);
+    finalState.decks = Array.isArray(state?.decks) ? state.decks : (existingState.decks || []);
+    finalState.videos = Array.isArray(state?.videos) ? state.videos : (existingState.videos || []);
+    finalState.quizzes = Array.isArray(state?.quizzes) ? state.quizzes : (existingState.quizzes || []);
+    finalState.tasks = Array.isArray(state?.tasks) ? state.tasks : (existingState.tasks || []);
+    finalState.saved = Array.isArray(state?.saved) ? state.saved : (existingState.saved || []);
 
     // Merge profile safely
     finalState.profile = {

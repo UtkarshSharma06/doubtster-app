@@ -40,17 +40,28 @@ export async function POST(request: Request) {
           {
             requireOtp: true,
             email: cleanEmail,
-            error: "Your email has not been verified yet. We sent a 6-digit verification code to your inbox.",
+            error: "Your email has not been verified yet. We sent an 8-digit verification code to your inbox.",
           },
           { status: 403 }
         );
       }
 
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      let userMsg = error.message;
+      if (error.message === "Invalid login credentials") {
+        userMsg = "Incorrect email or password. Please verify your details or sign up.";
+      } else if (error.message.toLowerCase().includes("fetch failed") || error.message.toLowerCase().includes("network")) {
+        userMsg = "Authentication service temporarily unreachable. Please check your connection or try again in a few seconds.";
+      }
+
+      return NextResponse.json({ error: userMsg }, { status: 400 });
     }
 
     return NextResponse.json({ success: true, message: "Logged in successfully" }, { status: 200 });
-  } catch (error) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  } catch (error: any) {
+    const isNetwork = error?.message?.toLowerCase().includes("fetch failed");
+    return NextResponse.json(
+      { error: isNetwork ? "Authentication service temporarily unreachable. Please try again." : "Invalid request" },
+      { status: 400 }
+    );
   }
 }

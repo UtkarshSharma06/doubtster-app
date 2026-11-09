@@ -77,7 +77,12 @@ export function AuthPage({ mode }: { mode: Mode }) {
   const otpRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setQ((new URLSearchParams(window.location.search).get("q") ?? "").trim().slice(0, 300));
+    const sp = new URLSearchParams(window.location.search);
+    setQ((sp.get("q") ?? "").trim().slice(0, 300));
+    const roleParam = (sp.get("role") || sp.get("type") || sp.get("student") || "").toLowerCase();
+    if (roleParam === "student" || roleParam === "college" || roleParam === "true") {
+      setIsStudent(true);
+    }
   }, []);
 
   // Timer countdown for resending OTP
@@ -157,6 +162,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
   const LAB = ["", "Weak", "Fair", "Good", "Strong"];
 
   const google = () => {
+    if (isStudent) return;
     if (AUTH.DEMO) {
       setNote({
         text: `Demo mode: Google sign in would go to ${AUTH.GOOGLE_URL} now. Set NEXT_PUBLIC_DEMO=false in production.`,
@@ -231,17 +237,21 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
       if (r.ok) {
         if (j.requireOtp) {
-          // Supabase requires email verification via 6-digit OTP
+          // Supabase requires email verification via OTP
           setOtpEmail(email.trim());
           setOtpType(mode === "signup" ? "signup" : "email");
           setOtpCountdown(45);
           setOtpNote({
-            text: j.message || `We sent a 6-digit verification code to ${email.trim()}.`,
+            text: j.message || `We sent an 8-digit verification code to ${email.trim()}.`,
             kind: "good",
           });
           setView("otp");
           setTimeout(() => otpRef.current?.focus(), 100);
         } else {
+          try {
+            localStorage.removeItem("doubtster-app-v2");
+            sessionStorage.clear();
+          } catch(e) {}
           window.location.href = AUTH.AFTER;
         }
       } else {
@@ -276,7 +286,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
   const startEmailOtpLogin = async () => {
     const clean = email.trim();
     if (!emailRe.test(clean)) {
-      setErrs({ em: "Enter your email address first to get a code." });
+      setErrs({ em: isStudent ? "Enter your university email address first to get a code." : "Enter your email address first to get a code." });
       emRef.current?.focus();
       return;
     }
@@ -294,7 +304,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
         setOtpEmail(clean);
         setOtpType("email");
         setOtpCountdown(45);
-        setOtpNote({ text: j.message || `6-digit verification code sent to ${clean}.`, kind: "good" });
+        setOtpNote({ text: j.message || `Verification code sent to ${clean}.`, kind: "good" });
         setView("otp");
         setTimeout(() => otpRef.current?.focus(), 100);
       } else {
@@ -306,12 +316,12 @@ export function AuthPage({ mode }: { mode: Mode }) {
     }
   };
 
-  // Submit 6-digit OTP verification
+  // Submit OTP verification (supports 8-digit and 6-digit codes)
   const submitOtp = async (ev: FormEvent) => {
     ev.preventDefault();
     const cleanCode = otpCode.trim().replace(/\D/g, "");
-    if (cleanCode.length !== 6) {
-      setOtpNote({ text: "Please enter the complete 6-digit code from your email.", kind: "bad" });
+    if (cleanCode.length !== 8 && cleanCode.length !== 6) {
+      setOtpNote({ text: "Please enter the complete verification code from your email.", kind: "bad" });
       otpRef.current?.focus();
       return;
     }
@@ -336,6 +346,10 @@ export function AuthPage({ mode }: { mode: Mode }) {
       if (r.ok) {
         setOtpNote({ text: "Code verified! Redirecting to Doubtster...", kind: "good" });
         setTimeout(() => {
+          try {
+            localStorage.removeItem("doubtster-app-v2");
+            sessionStorage.clear();
+          } catch(e) {}
           window.location.href = AUTH.AFTER;
         }, 600);
       } else {
@@ -364,7 +378,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
       setOtpBusy(false);
       if (r.ok) {
         setOtpCountdown(45);
-        setOtpNote({ text: `New 6-digit verification code sent to ${otpEmail}.`, kind: "good" });
+        setOtpNote({ text: `New verification code sent to ${otpEmail}.`, kind: "good" });
       } else {
         setOtpNote({ text: j.error || "Failed to resend verification code.", kind: "bad" });
       }
@@ -481,17 +495,76 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
                   {note && <div className={`msg ${note.kind}`} role="alert">{note.text}</div>}
 
-                  <button className="gbtn" type="button" onClick={google}>
-                    <svg viewBox="0 0 48 48" aria-hidden="true">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                    </svg>
-                    <span>{c.google}</span>
-                  </button>
+                  {/* Google sign up/in is only available for regular accounts, NOT for college students */}
+                  {!isStudent ? (
+                    <>
+                      <button className="gbtn" type="button" onClick={google}>
+                        <svg viewBox="0 0 48 48" aria-hidden="true">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                        </svg>
+                        <span>{c.google}</span>
+                      </button>
 
-                  <div className="or"><span>or use your {isStudent ? "university email" : "email"}</span></div>
+                      <button
+                        className="gbtn italobtn"
+                        type="button"
+                        onClick={() => {
+                          window.location.href = "https://app.italostudy.com/Doubtster?partner_sso=1";
+                        }}
+                        style={{
+                          marginTop: "8px",
+                          background: "#0f172a",
+                          color: "#ffffff",
+                          border: "1px solid rgba(255, 255, 255, 0.12)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "10px",
+                          fontWeight: 500,
+                          fontSize: "14px",
+                          cursor: "pointer"
+                        }}
+                      >
+                        <span style={{ fontSize: "16px" }}>🇮🇹</span>
+                        <span>Continue with ItaloStudy</span>
+                        <span style={{ 
+                          fontSize: "10px", 
+                          background: "rgba(16, 185, 129, 0.2)", 
+                          color: "#10b981", 
+                          padding: "2px 6px", 
+                          borderRadius: "999px",
+                          fontWeight: 600,
+                          marginLeft: "auto"
+                        }}>
+                          10 Free Credits
+                        </span>
+                      </button>
+
+                      <div className="or"><span>or use your email</span></div>
+                    </>
+                  ) : (
+                    <div style={{
+                      background: "#F0F5FF",
+                      border: "1px solid #D0E1FD",
+                      borderRadius: "10px",
+                      padding: "10px 14px",
+                      margin: "14px 0 16px",
+                      fontSize: "13px",
+                      color: "#185ADB",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      lineHeight: "1.4",
+                    }}>
+                      <span style={{ fontSize: "16px" }}>🎓</span>
+                      <span>
+                        Use your official university email (e.g. <code>.edu</code> or partner domain) to claim campus perks.
+                      </span>
+                    </div>
+                  )}
 
                   <form className="f" onSubmit={submit} noValidate>
                     {mode === "signup" && (
@@ -678,7 +751,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
                   {mode === "login" && (
                     <div className="alt-auth">
                       <button type="button" onClick={startEmailOtpLogin} disabled={busy}>
-                        📧 Or sign in with a 6-digit email code
+                        📧 Or sign in with an email verification code
                       </button>
                     </div>
                   )}
@@ -727,7 +800,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
                     </div>
                     <h1>Verify your email</h1>
                     <p className="otp-lead">
-                      We sent a 6-digit verification code to <span className="otp-email">{otpEmail}</span>.
+                      We sent a verification code to <span className="otp-email">{otpEmail}</span>.
                     </p>
                   </div>
 
@@ -735,25 +808,29 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
                   <form className="f" onSubmit={submitOtp} noValidate>
                     <div className="otp-input-wrap">
-                      <label htmlFor="otp-input" className="sr">Enter 6-digit verification code</label>
+                      <label htmlFor="otp-input" className="sr">Enter verification code</label>
                       <input
                         id="otp-input"
                         ref={otpRef}
                         type="text"
                         inputMode="numeric"
                         autoComplete="one-time-code"
-                        maxLength={6}
-                        placeholder="000000"
+                        maxLength={8}
+                        placeholder="00000000"
                         className="otp-code-input"
                         value={otpCode}
                         onChange={(e) => {
-                          const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                          const v = e.target.value.replace(/\D/g, "").slice(0, 8);
                           setOtpCode(v);
                         }}
                       />
                     </div>
 
-                    <button className={`go2${otpBusy ? " load" : ""}`} type="submit" disabled={otpBusy || otpCode.length !== 6}>
+                    <button
+                      className={`go2${otpBusy ? " load" : ""}`}
+                      type="submit"
+                      disabled={otpBusy || (otpCode.length !== 8 && otpCode.length !== 6)}
+                    >
                       <span className="spin" aria-hidden="true" />
                       <span>Verify and continue</span>
                     </button>

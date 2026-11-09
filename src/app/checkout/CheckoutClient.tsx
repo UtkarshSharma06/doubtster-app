@@ -43,8 +43,10 @@ export default function CheckoutClient() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [bd, setBd] = useState<CheckoutBreakdownData | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState('');
   const inited = useRef(false);
   const sdkRef = useRef<typeof import('dodopayments-checkout')['DodoPayments'] | null>(null);
+  const sdkPromiseRef = useRef<Promise<typeof import('dodopayments-checkout')['DodoPayments']> | null>(null);
 
   useEffect(() => { setNow(Date.now()); }, []);
   useEffect(() => {
@@ -53,24 +55,9 @@ export default function CheckoutClient() {
   }, []);
   useEffect(() => () => { try { sdkRef.current?.Checkout.close(); } catch {} }, []);
 
-  /* keep the URL in step with the chosen plan */
-  useEffect(() => {
-    const u = new URLSearchParams(qs.toString());
-    u.set('mode', mode);
-    if (mode === 'topup') u.set('pack', String(pack)); else u.set('plan', plan);
-    router.replace('?' + u.toString(), { scroll: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, plan, pack]);
-
-  const trialEnd = (now ?? 0) + PRICE.trialDays * DAY;
-  const due = mode === 'topup' ? PRICE.packs[pack].p : mode === 'trial' ? PRICE.trial : PRICE[plan];
-  const planLabel = plan === 'monthly' ? 'Monthly' : 'Yearly';
-  const per = plan === 'monthly' ? 'month' : 'year';
-  const thenTxt = plan === 'monthly' ? money(PRICE.monthly) + ' a month' : money(PRICE.annual) + ' a year (' + perMonth() + ' a month)';
-
   const reset = useCallback(() => {
     try { if (inited.current && sdkRef.current?.Checkout.isOpen()) sdkRef.current.Checkout.close(); } catch {}
-    setOpen(false); setReady(false); setBd(null); setConsent(false); setBusy(false);
+    setOpen(false); setReady(false); setBd(null); setConsent(false); setBusy(false); setCheckoutUrl('');
   }, []);
 
   const onDodo = useCallback((ev: CheckoutEvent) => {
@@ -90,6 +77,40 @@ export default function CheckoutClient() {
     else if (ev.event_type === 'checkout.link_expired') { reset(); setError('This checkout session expired. Please start again.'); }
   }, [reset]);
 
+  // Pre-load and initialize Dodo Payments SDK and establish CDN connections immediately on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !sdkPromiseRef.current) {
+      sdkPromiseRef.current = import('dodopayments-checkout')
+        .then(({ DodoPayments }) => {
+          sdkRef.current = DodoPayments;
+          if (!inited.current) {
+            DodoPayments.Initialize({ mode: DODO_MODE, displayType: 'inline', onEvent: onDodo });
+            inited.current = true;
+          }
+          return DodoPayments;
+        })
+        .catch((err) => {
+          console.warn('Pre-initializing Dodo Payments SDK deferred:', err);
+          return null as unknown as typeof import('dodopayments-checkout')['DodoPayments'];
+        });
+    }
+  }, [onDodo]);
+
+  /* keep the URL in step with the chosen plan */
+  useEffect(() => {
+    const u = new URLSearchParams(qs.toString());
+    u.set('mode', mode);
+    if (mode === 'topup') u.set('pack', String(pack)); else u.set('plan', plan);
+    router.replace('?' + u.toString(), { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, plan, pack]);
+
+  const trialEnd = (now ?? 0) + PRICE.trialDays * DAY;
+  const due = mode === 'topup' ? PRICE.packs[pack].p : mode === 'trial' ? PRICE.trial : PRICE[plan];
+  const planLabel = plan === 'monthly' ? 'Monthly' : 'Yearly';
+  const per = plan === 'monthly' ? 'month' : 'year';
+  const thenTxt = plan === 'monthly' ? money(PRICE.monthly) + ' a month' : money(PRICE.annual) + ' a year (' + perMonth() + ' a month)';
+
   async function start(e: React.FormEvent) {
     e.preventDefault();
     setError('');
@@ -102,16 +123,33 @@ export default function CheckoutClient() {
         emailHint = stored?.profile?.email || '';
       } catch {}
 
-      const r = await fetch(SESSION_ENDPOINT, {
+      // Parallelize backend session creation with SDK loading (SDK is typically already pre-cached on mount)
+      const sessionPromise = fetch(SESSION_ENDPOINT, {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode, plan, pack, email: emailHint }),
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.checkout_url) throw new Error(j?.error || '');
+        return j as { checkout_url: string; session_id?: string };
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.checkout_url) throw new Error(j?.error || '');
-      const { DodoPayments } = await import('dodopayments-checkout'); // client only, loaded when needed
+
+      const [j, DodoPayments] = await Promise.all([
+        sessionPromise,
+        sdkRef.current
+          ? Promise.resolve(sdkRef.current)
+          : (sdkPromiseRef.current || import('dodopayments-checkout').then((m) => m.DodoPayments)),
+      ]);
+
       sdkRef.current = DodoPayments;
-      if (!inited.current) { DodoPayments.Initialize({ mode: DODO_MODE, displayType: 'inline', onEvent: onDodo }); inited.current = true; }
-      setOpen(true); setBusy(false);
+      if (!inited.current) {
+        DodoPayments.Initialize({ mode: DODO_MODE, displayType: 'inline', onEvent: onDodo });
+        inited.current = true;
+      }
+
+      setCheckoutUrl(j.checkout_url);
+      setOpen(true);
+      setBusy(false);
+
       // the container is already in the DOM (hidden attribute is removed on the next paint)
       requestAnimationFrame(() => {
         DodoPayments.Checkout.open({
@@ -149,17 +187,18 @@ export default function CheckoutClient() {
             setReady(true);
             clearInterval(check);
           }
-        }, 120);
+        }, 150);
         setTimeout(() => {
           setReady(true);
           clearInterval(check);
-        }, 1200);
+        }, 3000);
       });
     } catch (err) {
       setBusy(false);
-      setError(/already used/.test((err as Error).message)
+      const msg = (err as Error).message || '';
+      setError(/already used/.test(msg)
         ? 'Your free trial was already used. Choose a plan instead.'
-        : 'Checkout is unavailable right now. Please try again in a minute.');
+        : (msg && msg !== 'Failed to fetch' ? msg : 'Checkout is unavailable right now. Please try again in a minute.'));
     }
   }
 
@@ -249,9 +288,27 @@ export default function CheckoutClient() {
           <div id="dodo-wrap" hidden={!open}>
             <div className="agreed"><i><Check /></i>You agreed to the terms</div>
             <div id="dodo-inline-checkout" data-dodo-ready={ready ? 'true' : 'false'}>
-              {!ready && <div className="skel"><i /><i /><i /><i /><i /></div>}
+              {!ready && (
+                <div className="skel">
+                  <div className="skel-status">Loading secure checkout...</div>
+                  <i /><i /><i /><i /><i />
+                </div>
+              )}
             </div>
-            <button className="again" type="button" onClick={reset}>Change plan or start over</button>
+            <div className="co-foot-actions">
+              <button className="again" type="button" onClick={reset}>Change plan or start over</button>
+              {checkoutUrl && (
+                <a
+                  className="co-direct-link"
+                  href={checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="If the embedded form is taking too long or blocked by your browser"
+                >
+                  Taking too long? Open checkout page directly ↗
+                </a>
+              )}
+            </div>
           </div>
 
           <div className="Rfoot">

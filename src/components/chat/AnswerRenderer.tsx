@@ -99,13 +99,51 @@ function SparklesIcon() {
 /* ==========================================================================
    Preprocessor
    ========================================================================== */
+function cleanFormula(raw: string): string {
+  if (!raw) return "";
+  let s = String(raw).trim();
+  while (s.startsWith("$$") && s.endsWith("$$") && s.length >= 4) {
+    s = s.slice(2, -2).trim();
+  }
+  while (s.startsWith("$") && s.endsWith("$") && s.length >= 2) {
+    s = s.slice(1, -1).trim();
+  }
+  while (s.startsWith("\\[") && s.endsWith("\\]") && s.length >= 4) {
+    s = s.slice(2, -2).trim();
+  }
+  while (s.startsWith("\\(") && s.endsWith("\\)") && s.length >= 4) {
+    s = s.slice(2, -2).trim();
+  }
+  // Strip any internal rogue unescaped $ so KaTeX never throws ParseError
+  s = s.replace(/(^|[^\\])\$/g, "$1 ").trim();
+  return s.trim();
+}
+
+function remarkSanitizeMath() {
+  return (tree: any) => {
+    visit(tree, (node: any) => {
+      if (node.type === "math" || node.type === "inlineMath") {
+        if (typeof node.value === "string" && node.value.includes("$")) {
+          node.value = node.value.replace(/(^|[^\\])\$/g, "$1 ").trim();
+        }
+      }
+    });
+  };
+}
+
 export function preprocessAnswerMarkdown(rawText: string): string {
   if (!rawText) return "";
   let text = String(rawText);
 
   // Normalize LaTeX delimiters \( ... \) -> $ ... $ and \[ ... \] -> $$ ... $$
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, "$$$1$$");
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, "\n\n$$$$\n$1\n$$$$\n\n");
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, eq) => `\n\n$$ ${cleanFormula(eq)} $$\n\n`);
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, eq) => `$${cleanFormula(eq)}$`);
+
+  // Strip accidental inner $ inside display math: $$ $...$ $$ -> $$ ... $$
+  text = text.replace(/\$\$[\s\r\n]*\$([\s\S]+?)\$[\s\r\n]*\$\$/g, (_, eq) => `\n\n$$ ${cleanFormula(eq)} $$\n\n`);
+
+  // Clean consecutive triple/quadruple dollars
+  text = text.replace(/\${3,}/g, "$$");
 
   // 1. Separate headings that have text directly on the same line
   // e.g. "## Quick answer The final result is..." -> "## Quick answer\nThe final result is..."
@@ -470,8 +508,8 @@ function MarkdownSection({
   return (
     <div className="doubtster-markdown-content">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkDirective, remarkDirectiveHandler, remarkStepCards, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={[remarkGfm, remarkDirective, remarkDirectiveHandler, remarkStepCards, remarkMath, remarkSanitizeMath]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false, errorColor: "#c92a2a" }]]}
         components={{
           "sticky-note": ({ noteType, children }: any) => {
             const idx = noteCounter++;

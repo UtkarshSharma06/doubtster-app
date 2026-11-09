@@ -7,16 +7,22 @@ export async function POST(req: Request) {
     const { mode, plan, pack, email } = await req.json();
 
     let userId = 'guest';
-    let userEmail = String(email || '');
+    let userEmail = String(email || '').trim();
+    let userName = 'Student';
 
     try {
       const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         userId = user.id;
-        userEmail = user.email || userEmail;
+        userEmail = (user.email || userEmail).trim();
+        userName = user.user_metadata?.name || user.user_metadata?.full_name || userName;
       }
     } catch {}
+
+    if (!userEmail) {
+      userEmail = 'student@doubtster.com';
+    }
 
     if (!['trial', 'direct', 'topup'].includes(mode)) {
       return NextResponse.json({ error: 'bad mode' }, { status: 400 });
@@ -35,43 +41,73 @@ export async function POST(req: Request) {
     }
 
     const base = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
-    const cart =
-      mode === 'topup'
-        ? [{ product_id: PRODUCT.packs[Number(pack)], quantity: 1 }]
-        : mode === 'trial'
-        ? [{ product_id: PRODUCT[plan as 'monthly' | 'annual'], quantity: 1 }, { product_id: PRODUCT.trialFee, quantity: 1 }]
-        : [{ product_id: PRODUCT[plan as 'monthly' | 'annual'], quantity: 1 }];
+    let checkoutUrl = '';
 
-    const session = await dodo.checkoutSessions.create({
-      product_cart: cart,
-      customer: { email: userEmail },
-      return_url: `${base}/app?checkout=return`,
-      metadata: { user_id: userId, mode, plan: plan ?? '', pack: String(pack ?? '') },
-      ...({ theme: 'light' } as any),
-      theme_config: {
-        light: {
-          bg_primary: '#ffffff',
-          bg_secondary: '#f9fafb',
-          border_primary: '#e5e7eb',
-          button_primary: '#1B57C8',
-          button_primary_hover: '#1545A3',
-          text_primary: '#111827',
-          text_secondary: '#4b5563',
-        },
-        dark: {
-          bg_primary: '#ffffff',
-          bg_secondary: '#f9fafb',
-          border_primary: '#e5e7eb',
-          button_primary: '#1B57C8',
-          button_primary_hover: '#1545A3',
-          text_primary: '#111827',
-          text_secondary: '#4b5563',
-        },
-      },
-      ...(mode === 'trial' ? { subscription_data: { trial_period_days: TRIAL_DAYS } } : {}),
-    });
+    // Primary strategy: subscriptions.create (for trial/direct) & payments.create (for topup)
+    // These endpoints utilize subscriptions:write and payments:write scopes.
+    try {
+      if (mode === 'topup') {
+        const payment = await dodo.payments.create({
+          billing: { country: 'US' },
+          customer: { email: userEmail, name: userName },
+          product_cart: [{ product_id: PRODUCT.packs[Number(pack)], quantity: 1 }],
+          payment_link: true,
+          return_url: `${base}/app?checkout=return`,
+          metadata: { user_id: userId, mode, plan: plan ?? '', pack: String(pack ?? '') },
+        });
+        checkoutUrl = payment.payment_link || '';
+      } else if (mode === 'trial') {
+        const sub = await dodo.subscriptions.create({
+          billing: { country: 'US' },
+          customer: { email: userEmail, name: userName },
+          product_id: PRODUCT[plan as 'monthly' | 'annual'],
+          quantity: 1,
+          payment_link: true,
+          return_url: `${base}/app?checkout=return`,
+          trial_period_days: TRIAL_DAYS,
+          one_time_product_cart: [{ product_id: PRODUCT.trialFee, quantity: 1 }],
+          metadata: { user_id: userId, mode, plan: plan ?? '', pack: String(pack ?? '') },
+        });
+        checkoutUrl = sub.payment_link || '';
+      } else {
+        // direct subscription
+        const sub = await dodo.subscriptions.create({
+          billing: { country: 'US' },
+          customer: { email: userEmail, name: userName },
+          product_id: PRODUCT[plan as 'monthly' | 'annual'],
+          quantity: 1,
+          payment_link: true,
+          return_url: `${base}/app?checkout=return`,
+          metadata: { user_id: userId, mode, plan: plan ?? '', pack: String(pack ?? '') },
+        });
+        checkoutUrl = sub.payment_link || '';
+      }
+    } catch (createErr: any) {
+      console.warn('subscriptions/payments.create failed, trying checkoutSessions.create fallback:', createErr?.message || createErr);
 
-    return NextResponse.json({ checkout_url: session.checkout_url });
+      // Secondary fallback: checkoutSessions.create
+      const cart =
+        mode === 'topup'
+          ? [{ product_id: PRODUCT.packs[Number(pack)], quantity: 1 }]
+          : mode === 'trial'
+          ? [{ product_id: PRODUCT[plan as 'monthly' | 'annual'], quantity: 1 }, { product_id: PRODUCT.trialFee, quantity: 1 }]
+          : [{ product_id: PRODUCT[plan as 'monthly' | 'annual'], quantity: 1 }];
+
+      const session = await dodo.checkoutSessions.create({
+        product_cart: cart,
+        customer: { email: userEmail, name: userName },
+        return_url: `${base}/app?checkout=return`,
+        metadata: { user_id: userId, mode, plan: plan ?? '', pack: String(pack ?? '') },
+        ...(mode === 'trial' ? { subscription_data: { trial_period_days: TRIAL_DAYS } } : {}),
+      });
+      checkoutUrl = session.checkout_url || '';
+    }
+
+    if (!checkoutUrl) {
+      return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 });
+    }
+
+    return NextResponse.json({ checkout_url: checkoutUrl });
   } catch (err: any) {
     console.error('Checkout session error:', err);
     return NextResponse.json({ error: err.message || 'Checkout session failed' }, { status: 500 });

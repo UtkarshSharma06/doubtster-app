@@ -167,6 +167,24 @@ export function NotebookNotes({
     document.documentElement.style.setProperty("--fs", `${fontSize}px`);
   }, [fontSize]);
 
+  // Keyboard navigation for page flipping (ArrowLeft / ArrowRight)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || "").toLowerCase();
+      if (activeTag === "input" || activeTag === "textarea") return;
+
+      if (e.key === "ArrowLeft") {
+        setActivePage((prev) => Math.max(0, prev - 1));
+        window.scrollTo(0, 0);
+      } else if (e.key === "ArrowRight") {
+        setActivePage((prev) => Math.min(totalPages - 1, prev + 1));
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [totalPages]);
+
   // Handle write animation
   const runWriteAnimation = () => {
     if (!paperRef.current) return;
@@ -370,13 +388,13 @@ export function NotebookNotes({
             {/* Top Academic Header Bar (Chapter X | Topic | Page no. X) */}
             <div className="academic-header-bar" role="banner">
               <span className="acad-chap">
-                {note.chapter || (note.level && note.level.toLowerCase().includes("chapter") ? note.level : "Chapter 4")}
+                {note.chapter || (note.level && note.level.toLowerCase().includes("chapter") ? note.level : (note.subject || "Study Notes"))}
               </span>
               <span className="acad-topic">
-                {note.shortTitle || note.subject || note.title || "Quadratic Equations"}
+                {note.shortTitle || note.title || note.subject || "Study Notes"}
               </span>
               <span className="acad-page">
-                {note.pageNo ? `Page no. ${note.pageNo}` : `Page no. ${85 + activePage + 1}`}
+                Page {activePage + 1} of {totalPages}
               </span>
             </div>
 

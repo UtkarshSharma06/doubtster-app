@@ -1,494 +1,443 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SHOW_VISUAL_TOOL, VISUALS_SYSTEM_PROMPT } from "@/lib/visuals/tool";
-import { validateVisualSpec, MessagePart, VisualSpec } from "@/lib/visuals/schema";
+import { classifyIntent } from "@/lib/chat/router";
+import { getSystemPrompt } from "@/lib/chat/prompts";
+import { buildContextPayload, extractAnswerMemory, AnswerMemory } from "@/lib/chat/context";
+import { verifyAnswerMath } from "@/lib/chat/verify";
+import { isTooSimilar } from "@/lib/chat/dedupe";
+import { executeLLMChat } from "@/lib/chat/providers";
+import { AnswerSchema, FollowUpSchema, Answer, FollowUp } from "@/lib/chat/schema";
+import { validateAndProcessAttachment, ProcessedAttachment } from "@/lib/chat/attachmentSecurity";
+import { MessageContent } from "@/lib/chat/providers/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { messages, profile, subject, stream = true } = body;
+    const {
+      messages = [],
+      profile,
+      subject,
+      memory = null,
+      stream = false,
+      attachment = null,
+    } = body;
 
-    const baseSystemPrompt = `${VISUALS_SYSTEM_PROMPT}
- 
-You are Doubtster, a patient tutor. Answer in clean Markdown using EXACTLY this structure:
-
-## Quick answer
-One or two sentences with the final result first.
-
-## Concept
-Clear, intuitive explanation of the core idea, intuition, and why it works. Use :::key blocks for the 1 to 3 most important conceptual insights.
-
-## Solution
-One ### heading per step: "### Step 1: <clear action>". Under each step: explain the rationale and intuition clearly so a student deeply understands WHY this step is taken, then provide the complete, step-by-step working. Put every formula in LaTeX: inline $...$ and display $$...$$. Never write maths as plain text or with asterisks. Show one operation per line. Keep units in every step.
-
-## Check
-How to sanity check the result (units, estimate, substitute back).
-
-## Common mistake
-One typical error, inside a :::warning block.
-
-## Final answer
-The result in a :::answer block, with units.
-
-Special blocks (use this exact syntax, each on its own lines):
-:::key
-Most important idea or sentence
-:::
-:::formula
-$$ formula $$
-:::
-:::warning
-Common mistake or trap
-:::
-:::tip
-Shortcut or memory trick
-:::
-:::answer
-**Final answer:** $...$ with units
-:::
-
-Rules: do not use ** for headings, use ## and ###. Use ==text== to mark a key phrase inside a sentence (max 3 per answer). No em dashes. Provide complete, rich, patient, and deeply educational explanations like a master teacher. Never skip intermediate steps. Never invent facts. Write in the user's language (English, French, Spanish or Hindi).`;
-
-    const contextParts: string[] = [];
-    if (profile && Object.keys(profile).length > 0) {
-      contextParts.push(`Profile context: ${JSON.stringify(profile)}`);
-    }
-    if (subject && subject !== "General" && subject !== "Auto") {
-      contextParts.push(`Subject: ${subject}`);
-    }
-
-    const sysInstruction = contextParts.length > 0
-      ? `${baseSystemPrompt}\n\n${contextParts.join("\n")}`
-      : baseSystemPrompt;
-
-    const chatMessages = (messages || []).map((msg: any) => ({
-      role: msg.role === "user" ? "user" : "assistant",
-      content: msg.content,
-    }));
-
-    chatMessages.unshift({ role: "system", content: sysInstruction });
-
-    const tools = [SHOW_VISUAL_TOOL];
-    const tool_choice = "auto";
-
-    // Setup providers to attempt in order
-    const geminiKey = process.env.GEMINI_API_KEY;
-    const groqKey = process.env.GROQ_API_KEY;
-    const openrouterKey = process.env.OPENROUTER_API_KEY;
-    const nvidiaKey = process.env.NVIDIA_API_KEY;
-
-    interface ProviderConfig {
-      name: string;
-      url: string;
-      key: string;
-      model: string;
-    }
-
-    const providers: ProviderConfig[] = [];
-
-    // 1. Groq Cloud (ultra-fast reasoning)
-    if (groqKey) {
-      providers.push({
-        name: "Groq 120B",
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        key: groqKey,
-        model: "openai/gpt-oss-120b",
-      });
-      providers.push({
-        name: "Groq 20B",
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        key: groqKey,
-        model: "openai/gpt-oss-20b",
-      });
-      providers.push({
-        name: "Groq Qwen",
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        key: groqKey,
-        model: "qwen/qwen3.8-27b",
-      });
-    }
-
-    // 2. Gemini OpenAI-compatible
-    if (geminiKey && !geminiKey.startsWith("AQ.")) {
-      providers.push({
-        name: "Gemini",
-        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        key: geminiKey,
-        model: "gemini-3.8-flash",
-      });
-    }
-
-    // 3. NVIDIA NIM
-    if (nvidiaKey) {
-      providers.push({
-        name: "NVIDIA",
-        url: "https://integrate.api.nvidia.com/v1/chat/completions",
-        key: nvidiaKey,
-        model: "deepseek-ai/deepseek-v4.1-flash",
-      });
-    }
-
-    // 4. OpenRouter
-    if (openrouterKey) {
-      providers.push({
-        name: "OpenRouter",
-        url: "https://openrouter.ai/api/v1/chat/completions",
-        key: openrouterKey,
-        model: "google/gemini-2.5-flash",
-      });
-    }
-
-    if (providers.length === 0) {
-      throw new Error("No AI provider API keys configured in environment.");
-    }
-
-    // Try providers sequentially
-    let selectedResponse: Response | null = null;
-    let selectedProviderName = "";
-    let selectedProvider: ProviderConfig | null = null;
-
-    for (const provider of providers) {
+    // 1. Process in-memory attachment safely if present (Option A: $0 ephemeral storage)
+    let processedAttachment: ProcessedAttachment | null = null;
+    if (attachment && attachment.base64) {
       try {
-        const payload: any = {
-          model: provider.model,
-          messages: chatMessages,
-          tools,
-          tool_choice,
-          temperature: 0.3,
-          stream,
-        };
-
-        const res = await fetch(provider.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${provider.key}`,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          selectedResponse = res;
-          selectedProviderName = provider.name;
-          selectedProvider = provider;
-          break;
-        } else {
-          const errBody = await res.text().catch(() => "");
-          console.warn(`[Chat API] Provider ${provider.name} failed (${res.status}):`, errBody.slice(0, 200));
-        }
-      } catch (err: any) {
-        console.warn(`[Chat API] Provider ${provider.name} connection error:`, err.message);
+        processedAttachment = await validateAndProcessAttachment(attachment);
+      } catch (attErr: any) {
+        return NextResponse.json(
+          { error: attErr?.message || "Invalid or unsupported file attachment." },
+          { status: 400 }
+        );
       }
     }
 
-    if (!selectedResponse) {
-      throw new Error("All AI providers were unavailable or failed.");
+    // 2. Input sanitization & size limits
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json({ error: "Messages array is required." }, { status: 400 });
     }
 
-    // =========================================================================
-    // A. Streaming Response Mode (SSE)
-    // =========================================================================
-    if (stream && selectedResponse.body) {
-      const upstreamReader = selectedResponse.body.getReader();
-      const decoder = new TextDecoder();
-      const encoder = new TextEncoder();
+    const lastMessage = messages[messages.length - 1];
+    let userPrompt = String(lastMessage?.content || "").trim();
 
-      const transformStream = new ReadableStream({
-        async start(controller) {
-          let textAccumulator = "";
-          let textBeforeTool = "";
-          const toolCallMap = new Map<number, { id: string; name: string; args: string }>();
-          let placeholderEmitted = false;
-          let buffer = "";
+    if (!userPrompt && !processedAttachment) {
+      return NextResponse.json({ error: "Please enter a question or attach an image/doc." }, { status: 400 });
+    }
 
-          try {
-            while (true) {
-              const { value, done } = await upstreamReader.read();
-              if (done) break;
+    if (!userPrompt && processedAttachment) {
+      userPrompt = processedAttachment.type === "image"
+        ? "Please examine the problem in this image and provide a step-by-step solution."
+        : `Please analyze the attached document (${processedAttachment.fileName}) and solve any questions inside it.`;
+    }
 
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || "";
+    if (userPrompt.length > 8000) {
+      return NextResponse.json(
+        { error: "Message is too long. Please keep questions under 8,000 characters." },
+        { status: 400 }
+      );
+    }
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed.startsWith(":")) continue;
-                if (trimmed === "data: [DONE]") continue;
+    // If a document was attached, inject the extracted text directly into userPrompt for the LLM
+    if (processedAttachment && processedAttachment.type === "document" && processedAttachment.extractedText) {
+      userPrompt = `${userPrompt}\n\n[Attached Document: ${processedAttachment.fileName}]\n"""\n${processedAttachment.extractedText}\n"""`;
+    }
 
-                if (trimmed.startsWith("data: ")) {
-                  try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta;
+    // Previous assistant replies for deduplication
+    const previousAssistantReplies = messages
+      .filter((m: any) => m.role === "assistant")
+      .map((m: any) => String(m.content || ""));
 
-                    if (!delta) continue;
+    // 2. Classify intent
+    const classification = await classifyIntent(
+      userPrompt,
+      messages.slice(0, -1),
+      memory as AnswerMemory | null
+    );
 
-                    // 1. Text delta
-                    if (delta.content) {
-                      textAccumulator += delta.content;
-                      controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ type: "text", delta: delta.content })}\n\n`)
-                      );
-                    }
+    const { intent, language = "en", reason } = classification;
 
-                    // 2. Tool calls delta
-                    if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
-                      for (const tc of delta.tool_calls) {
-                        const index = tc.index ?? 0;
-                        const existing = toolCallMap.get(index) || {
-                          id: tc.id || "",
-                          name: tc.function?.name || "",
-                          args: "",
-                        };
+    // 3. Build context & prompt
+    const { recentHistory, summary, memorySnippet } = buildContextPayload(
+      messages.slice(0, -1),
+      memory as AnswerMemory | null
+    );
 
-                        if (tc.id) existing.id = tc.id;
-                        if (tc.function?.name) existing.name = tc.function.name;
-                        if (tc.function?.arguments) existing.args += tc.function.arguments;
+    const systemPrompt = getSystemPrompt(intent, language, profile);
 
-                        toolCallMap.set(index, existing);
+    const llmMessages: { role: "system" | "user" | "assistant"; content: MessageContent }[] = [
+      { role: "system", content: systemPrompt },
+    ];
 
-                        if (!placeholderEmitted && (existing.name === "show_visual" || !existing.name)) {
-                          placeholderEmitted = true;
-                          textBeforeTool = textAccumulator;
-                          controller.enqueue(
-                            encoder.encode(
-                              `data: ${JSON.stringify({
-                                type: "placeholder",
-                                message: "Drawing the graph...",
-                              })}\n\n`
-                            )
-                          );
-                        }
-                      }
-                    }
-                  } catch {
-                    // Ignore JSON parse errors for incomplete chunks
-                  }
-                }
-              }
-            }
+    if (summary) {
+      llmMessages.push({ role: "system", content: `Context Summary:\n${summary}` });
+    }
 
-            // Stream complete: validate tool calls
-            const validatedVisuals: VisualSpec[] = [];
-            for (const [, toolCall] of toolCallMap) {
-              if (toolCall.name === "show_visual" && toolCall.args) {
-                const validation = validateVisualSpec(toolCall.args);
-                if (validation.success) {
-                  validatedVisuals.push(validation.data);
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ type: "visual", visual: validation.data })}\n\n`)
-                  );
-                } else {
-                  console.warn("[Chat API] Dropped invalid visual tool spec:", validation.error, "args:", toolCall.args);
-                }
-              }
-            }
+    if (memorySnippet) {
+      llmMessages.push({ role: "system", content: memorySnippet });
+    }
 
-            // If the model called a tool and generated little/no text (standard OpenAI tool finish),
-            // call the provider with the tool result so the model completes the full step-by-step written answer!
-            if (validatedVisuals.length > 0 && textAccumulator.trim().length < 80 && selectedProvider) {
-              try {
-                const rawToolCalls = Array.from(toolCallMap.values()).map((tc, idx) => ({
-                  id: tc.id || `call_${idx}`,
-                  type: "function",
-                  function: { name: tc.name || "show_visual", arguments: tc.args },
-                }));
-
-                const assistantMsg: any = {
-                  role: "assistant",
-                  tool_calls: rawToolCalls,
-                };
-                if (textAccumulator) assistantMsg.content = textAccumulator;
-
-                const followUpMessages = [
-                  ...chatMessages,
-                  assistantMsg,
-                  ...rawToolCalls.map((tc) => ({
-                    role: "tool",
-                    tool_call_id: tc.id,
-                    content: "The visual has been rendered inline to the student. Now provide the full, step-by-step master-teacher written answer and explanation in text matching the Doubtster structure (## Quick answer, ## Concept, ## Solution, ## Check, ## Common mistake, ## Final answer). The numbers in your explanation must match the numbers in the visual.",
-                  })),
-                ];
-
-                const followUpRes = await fetch(selectedProvider.url, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${selectedProvider.key}`,
-                  },
-                  body: JSON.stringify({
-                    model: selectedProvider.model,
-                    messages: followUpMessages,
-                    temperature: 0.3,
-                    stream: true,
-                  }),
-                });
-
-                if (followUpRes.ok && followUpRes.body) {
-                  const followUpReader = followUpRes.body.getReader();
-                  let followUpBuffer = "";
-                  while (true) {
-                    const { value, done } = await followUpReader.read();
-                    if (done) break;
-                    followUpBuffer += decoder.decode(value, { stream: true });
-                    const fLines = followUpBuffer.split("\n");
-                    followUpBuffer = fLines.pop() || "";
-                    for (const fLine of fLines) {
-                      const trimmed = fLine.trim();
-                      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-                      if (trimmed === "data: [DONE]") continue;
-                      try {
-                        const fJson = JSON.parse(trimmed.slice(6));
-                        const fDelta = fJson.choices?.[0]?.delta;
-                        if (fDelta?.content) {
-                          textAccumulator += fDelta.content;
-                          controller.enqueue(
-                            encoder.encode(`data: ${JSON.stringify({ type: "text", delta: fDelta.content })}\n\n`)
-                          );
-                        }
-                      } catch {}
-                    }
-                  }
-                }
-              } catch (followUpErr: any) {
-                console.warn("[Chat API] Follow-up text generation error:", followUpErr.message);
-              }
-            }
-
-            // Construct final structured parts in inline order
-            const parts: MessagePart[] = [];
-            const trimmedBefore = textBeforeTool.trim();
-            const afterToolText = textAccumulator.slice(textBeforeTool.length).trim();
-
-            if (trimmedBefore) {
-              parts.push({ type: "text", text: trimmedBefore });
-            }
-            for (const visual of validatedVisuals) {
-              parts.push({ type: "visual", visual });
-            }
-            if (afterToolText) {
-              parts.push({ type: "text", text: afterToolText });
-            } else if (!trimmedBefore && textAccumulator.trim()) {
-              parts.push({ type: "text", text: textAccumulator.trim() });
-            }
-
-            // Emit completion event
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "done",
-                  text: textAccumulator,
-                  parts,
-                  visuals: validatedVisuals,
-                })}\n\n`
-              )
-            );
-          } catch (err: any) {
-            console.error("[Chat API Stream error]:", err);
-          } finally {
-            controller.close();
-          }
-        },
-      });
-
-      return new Response(transformStream, {
-        headers: {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive",
-        },
+    // Add recent conversational history
+    for (const msg of recentHistory) {
+      llmMessages.push({
+        role: msg.role === "user" ? "user" : "assistant",
+        content: msg.content,
       });
     }
 
-    // =========================================================================
-    // B. Non-Streaming JSON Response Mode
-    // =========================================================================
-    const data = await selectedResponse.json();
-    const choice = data.choices?.[0];
-    const message = choice?.message || {};
-    let rawText = message.content || "";
-    const toolCalls = message.tool_calls || [];
-
-    const validatedVisuals: VisualSpec[] = [];
-
-    if (Array.isArray(toolCalls)) {
-      for (const tc of toolCalls) {
-        if (tc.function?.name === "show_visual" && tc.function.arguments) {
-          const valRes = validateVisualSpec(tc.function.arguments);
-          if (valRes.success) {
-            validatedVisuals.push(valRes.data);
-          } else {
-            console.warn("[Chat API Non-stream] Dropped invalid visual:", valRes.error);
-          }
-        }
-      }
+    // Add latest user prompt (with multimodal vision if image attached)
+    if (processedAttachment && processedAttachment.type === "image" && processedAttachment.dataUrl) {
+      llmMessages.push({
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          { type: "image_url", image_url: { url: processedAttachment.dataUrl } },
+        ],
+      });
+    } else {
+      llmMessages.push({ role: "user", content: userPrompt });
     }
 
-    if (validatedVisuals.length > 0 && (!rawText || rawText.trim().length < 80) && selectedProvider) {
+    // 4. Generate response using swappable LLM provider
+    const requiresVision = Boolean(processedAttachment && processedAttachment.type === "image");
+    const llmResult = await executeLLMChat(llmMessages, {
+      temperature: intent === "NEW_QUESTION" ? 0.15 : 0.4,
+      requiresVision,
+    });
+
+    let rawReply = llmResult.text.trim();
+
+    // 5. Handle different intent responses
+    if (intent === "SMALL_TALK" || intent === "META") {
+      // Remove accidental json code blocks if model wrapped it
+      let cleanText = rawReply.replace(/```json/g, "").replace(/```/g, "").trim();
       try {
-        const assistantMsg: any = {
-          role: "assistant",
-          tool_calls: toolCalls,
-        };
-        if (rawText) assistantMsg.content = rawText;
+        const parsed = JSON.parse(cleanText);
+        if (parsed.text) cleanText = parsed.text;
+      } catch {
+        // Normal text
+      }
 
-        const followUpMessages = [
-          ...chatMessages,
-          assistantMsg,
-          ...toolCalls.map((tc: any, idx: number) => ({
-            role: "tool",
-            tool_call_id: tc.id || `call_${idx}`,
-            content: "The visual has been rendered inline to the student. Now provide the full, step-by-step master-teacher written answer and explanation in text matching the Doubtster structure (## Quick answer, ## Concept, ## Solution, ## Check, ## Common mistake, ## Final answer). The numbers in your explanation must match the numbers in the visual.",
-          })),
-        ];
+      // Normalize smashed inline bullets and ensure clean line breaks
+      cleanText = cleanText
+        .replace(/:\s*[\*•-]\s+/g, ":\n\n* ")
+        .replace(/([.!?])\s+[\*•-]\s+/g, "$1\n* ")
+        .replace(/([^\n])\s+[\*•-]\s+(\*\*[^*]+\*\*)/g, "$1\n* $2")
+        .replace(/([.!?])\s+(Chatting with me is|Feel free to|Let me know if|What subject are you|How can I help)\b/gi, "$1\n\n$2")
+        .trim();
 
-        const followUpRes = await fetch(selectedProvider.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${selectedProvider.key}`,
-          },
-          body: JSON.stringify({
-            model: selectedProvider.model,
-            messages: followUpMessages,
-            temperature: 0.3,
-            stream: false,
-          }),
+      // Check deduplication
+      const dedupe = isTooSimilar(cleanText, previousAssistantReplies);
+      if (dedupe.duplicate) {
+        cleanText = "I'm right here! Let me know what homework or concept you'd like to work on.";
+      }
+
+      return NextResponse.json({
+        intent,
+        intentReason: reason || "Conversational",
+        content: cleanText,
+        text: cleanText,
+        title: "Chat",
+        provider: llmResult.providerName,
+      });
+    }
+
+    // For CLARIFY, WHAT_IF, RE_EXPLAIN, REPEAT
+    if (
+      intent === "CLARIFY" ||
+      intent === "WHAT_IF" ||
+      intent === "RE_EXPLAIN" ||
+      intent === "REPEAT"
+    ) {
+      let parsedFollowUp: FollowUp | null = null;
+      try {
+        const cleaned = rawReply.replace(/```json/g, "").replace(/```/g, "").trim();
+        const json = JSON.parse(cleaned);
+        parsedFollowUp = FollowUpSchema.parse({
+          ...json,
+          intent,
+          refersTo: json.refersTo || classification.refersTo,
         });
+      } catch (err) {
+        // Fallback to text follow-up
+        parsedFollowUp = {
+          intent,
+          refersTo: classification.refersTo,
+          text: rawReply,
+        };
+      }
 
-        if (followUpRes.ok) {
-          const followUpData = await followUpRes.json();
-          const followUpText = followUpData.choices?.[0]?.message?.content || "";
-          if (followUpText) {
-            rawText = rawText ? `${rawText}\n\n${followUpText}` : followUpText;
+      const followUpText = parsedFollowUp?.text || rawReply;
+      return NextResponse.json({
+        intent,
+        intentReason: reason,
+        followUp: parsedFollowUp,
+        refersTo: parsedFollowUp?.refersTo,
+        content: followUpText,
+        text: followUpText,
+        provider: llmResult.providerName,
+      });
+    }
+
+    // For NEW_QUESTION: parse & validate structured Answer
+    let parsedAnswer: Answer | null = null;
+    try {
+      const cleaned = rawReply.replace(/```json/g, "").replace(/```/g, "").trim();
+      const json = JSON.parse(cleaned);
+      parsedAnswer = AnswerSchema.parse(json);
+    } catch (parseError: any) {
+      console.warn("[Chat API] Schema validation failed, attempting 1 retry:", parseError?.message);
+
+      // Retry once with error feedback to LLM
+      try {
+        const retryResult = await executeLLMChat([
+          ...llmMessages,
+          { role: "assistant", content: rawReply },
+          {
+            role: "user",
+            content: `Your previous response failed JSON schema validation: ${parseError?.message}. Please return strictly valid JSON matching the Answer schema without markdown formatting outside the JSON.`,
+          },
+        ]);
+        const cleanedRetry = retryResult.text.replace(/```json/g, "").replace(/```/g, "").trim();
+        parsedAnswer = AnswerSchema.parse(JSON.parse(cleanedRetry));
+      } catch (retryError) {
+        console.warn("[Chat API] Schema parse retry failed, checking for partial JSON recovery:", retryError);
+        try {
+          const rawCleaned = rawReply.replace(/```json/g, "").replace(/```/g, "").trim();
+          const rawObj = JSON.parse(rawCleaned);
+          if (rawObj && typeof rawObj === "object") {
+            parsedAnswer = {
+              title: String(rawObj.title || "Solution"),
+              subject: String(rawObj.subject || "General"),
+              topic: String(rawObj.topic || "Topic"),
+              level: String(rawObj.level || "Grade 11-12"),
+              summary: String(rawObj.summary || rawObj.title || ""),
+              result: Array.isArray(rawObj.result) ? rawObj.result : [],
+              blocks: Array.isArray(rawObj.blocks) ? rawObj.blocks : [],
+              mistakes: Array.isArray(rawObj.mistakes) ? rawObj.mistakes : [],
+              checks: Array.isArray(rawObj.checks) ? rawObj.checks : [],
+              board: Array.isArray(rawObj.board) ? rawObj.board : [],
+              quiz: Array.isArray(rawObj.quiz) ? rawObj.quiz : [],
+              followUps: Array.isArray(rawObj.followUps) ? rawObj.followUps : ["Can you explain this simpler?", "What if the values change?"],
+              offerVideo: Boolean(rawObj.offerVideo ?? false),
+            };
           }
-        } else {
-          const errText = await followUpRes.text();
-          console.warn("[Chat API Non-stream] Follow-up failed:", followUpRes.status, errText.slice(0, 200));
+        } catch {
+          // Plain text fallback
         }
-      } catch (err: any) {
-        console.warn("[Chat API Non-stream] Follow-up text error:", err.message);
+
+        if (!parsedAnswer) {
+          return NextResponse.json({
+            intent: "NEW_QUESTION",
+            intentReason: "Structured answer fallback",
+            content: rawReply,
+            text: rawReply,
+            provider: llmResult.providerName,
+          });
+        }
       }
     }
 
-    const parts: MessagePart[] = [];
-    for (const visual of validatedVisuals) {
-      parts.push({ type: "visual", visual });
+    // 6. Verify numeric computations using mathjs
+    if (parsedAnswer) {
+      const verification = verifyAnswerMath(parsedAnswer);
+      if (!verification.verified) {
+        console.warn("[Chat API] Math verification found discrepancies:", verification.notes);
+      }
     }
-    if (rawText) {
-      parts.push({ type: "text", text: rawText });
+
+    // 7. Deduplicate check
+    const answerSummary = parsedAnswer?.summary || "";
+    const dedupeCheck = isTooSimilar(answerSummary, previousAssistantReplies);
+    if (dedupeCheck.duplicate && parsedAnswer) {
+      parsedAnswer.summary = `Here is a fresh look at ${parsedAnswer.topic || "this problem"}:`;
+    }
+
+    // Helper functions for markdown & legacy step mapping
+    function cleanFormula(raw: string): string {
+      if (!raw) return "";
+      let s = String(raw).trim();
+      while (s.startsWith("$$") && s.endsWith("$$") && s.length >= 4) {
+        s = s.slice(2, -2).trim();
+      }
+      while (s.startsWith("$") && s.endsWith("$") && s.length >= 2) {
+        s = s.slice(1, -1).trim();
+      }
+      while (s.startsWith("\\[") && s.endsWith("\\]") && s.length >= 4) {
+        s = s.slice(2, -2).trim();
+      }
+      while (s.startsWith("\\(") && s.endsWith("\\)") && s.length >= 4) {
+        s = s.slice(2, -2).trim();
+      }
+      s = s.replace(/(^|[^\\])\$/g, "$1 ").trim();
+      return s.trim();
+    }
+
+    function answerToMarkdown(a: Answer): string {
+      let md = `## ${a.title}\n\n${a.summary}\n\n`;
+      if (a.result && a.result.length > 0) {
+        md += `### Result\n`;
+        for (const r of a.result) {
+          md += `- **${r.label}**: ${r.value}${r.unit ? ` ${r.unit}` : ""}${r.formula ? ` (${r.formula})` : ""}\n`;
+        }
+        md += `\n`;
+      }
+      for (const block of a.blocks) {
+        if (block.type === "given") {
+          md += `### Given\n`;
+          for (const item of block.items) {
+            md += `- **${item.label}**: ${item.value}\n`;
+          }
+          md += `\n`;
+        } else if (block.type === "steps") {
+          for (let i = 0; i < block.steps.length; i++) {
+            const s = block.steps[i];
+            md += `### Step ${i + 1}: ${s.title}\n\n${s.why}\n\n`;
+            if (s.math && s.math.length > 0) {
+              for (const m of s.math) {
+                const clean = cleanFormula(m);
+                if (clean) {
+                  md += `\n:::formula\n$$ ${clean} $$\n:::\n\n`;
+                }
+              }
+            }
+            if (s.result) {
+              md += `**Result:** ${s.result}\n\n`;
+            }
+            if (s.note) {
+              md += `*Note:* ${s.note}\n\n`;
+            }
+          }
+        } else if (block.type === "figure") {
+          md += `\n\n> **Figure: ${block.title || "Visual"}**\n*${block.caption || ""}*\n\n`;
+        } else if (block.type === "table") {
+          md += `\n\n| ${block.columns.join(" | ")} |\n| ${block.columns.map(() => "---").join(" | ")} |\n`;
+          for (const row of block.rows) {
+            md += `| ${row.join(" | ")} |\n`;
+          }
+          md += `\n\n`;
+        } else if (block.type === "callout") {
+          md += `:::${block.tone === "warn" ? "warning" : "key"}\n**${block.title}**\n${block.items.join("\n")}\n:::\n\n`;
+        } else if (block.type === "code") {
+          md += `\`\`\`${block.language}\n${block.code}\n\`\`\`\n\n`;
+        } else if (block.type === "text") {
+          md += `${block.md}\n\n`;
+        }
+      }
+      return md.trim();
+    }
+
+    function answerToLegacySteps(a: Answer) {
+      const stepsBlock = a.blocks.find((b) => b.type === "steps");
+      if (stepsBlock && stepsBlock.type === "steps") {
+        return stepsBlock.steps.map((s) => ({
+          h: s.title,
+          t: s.why + (s.note ? ` (${s.note})` : ""),
+          math: s.math?.map(cleanFormula).join("; "),
+          result: s.result,
+        }));
+      }
+      return [];
+    }
+
+    // 8. Generate answer memory for follow-up turns
+    const generatedMemory = parsedAnswer
+      ? extractAnswerMemory(`m_${Date.now()}`, parsedAnswer)
+      : null;
+
+    const markdownAnswer = parsedAnswer ? answerToMarkdown(parsedAnswer) : rawReply;
+    const legacySteps = parsedAnswer ? answerToLegacySteps(parsedAnswer) : [];
+
+    // 9. Build structured parts for interactive visual charts & diagrams
+    const parts: any[] = [];
+    if (parsedAnswer) {
+      parts.push({ type: "text", text: markdownAnswer });
+      const figureBlock = parsedAnswer.blocks.find((b: any) => b.type === "figure") as any;
+      if (figureBlock && figureBlock.chart) {
+        let visualSpec: any = null;
+        if (figureBlock.chart.kind === "trajectory") {
+          const v0 = Number(figureBlock.chart.v0) || 20;
+          const angleDeg = Number(figureBlock.chart.angleDeg) || 45;
+          const g = Number(figureBlock.chart.g) || 9.8;
+          const rad = (angleDeg * Math.PI) / 180;
+          const range = Math.max(10, Math.round((v0 * v0 * Math.sin(2 * rad)) / g) + 5);
+          visualSpec = {
+            type: "function_plot",
+            title: figureBlock.title || "Trajectory Motion",
+            functions: [{
+              expr: `${Math.tan(rad).toFixed(3)}*x - ${(g / (2 * Math.pow(v0 * Math.cos(rad), 2))).toFixed(4)}*x^2`,
+              label: "Trajectory",
+              color: "#2F7BFF",
+            }],
+            x_range: [0, range],
+            x_label: "Distance (m)",
+            y_label: "Height (m)",
+          };
+        } else if (figureBlock.chart.kind === "diagram") {
+          visualSpec = {
+            type: "diagram",
+            title: figureBlock.title || "Concept Diagram",
+            mermaid: typeof figureBlock.chart.spec === "string" ? figureBlock.chart.spec : JSON.stringify(figureBlock.chart.spec),
+          };
+        } else if (figureBlock.chart.kind === "line" || figureBlock.chart.kind === "bar" || figureBlock.chart.kind === "scatter") {
+          visualSpec = {
+            type: "data_chart",
+            chart: figureBlock.chart.kind,
+            title: figureBlock.title || "Data Chart",
+            x_label: figureBlock.chart.xLabel || "x",
+            y_label: figureBlock.chart.yLabel || "y",
+            series: (figureBlock.chart.series || []).map((s: any) => ({
+              name: s.name,
+              data: s.points.map((pt: any) => ({ x: pt[0], y: pt[1] })),
+            })),
+          };
+        }
+        if (visualSpec) {
+          parts.push({ type: "visual", visual: visualSpec });
+        }
+      }
     }
 
     return NextResponse.json({
-      text: rawText,
-      parts,
-      visuals: validatedVisuals,
-      provider: selectedProviderName,
+      intent: "NEW_QUESTION",
+      intentReason: reason || "Full structured answer",
+      answer: parsedAnswer,
+      content: markdownAnswer,
+      text: markdownAnswer,
+      title: parsedAnswer?.title,
+      subject: parsedAnswer?.subject,
+      steps: legacySteps,
+      memory: generatedMemory,
+      parts: parts.length > 0 ? parts : undefined,
+      provider: llmResult.providerName,
     });
-  } catch (err: any) {
-    console.error("Chat API Error:", err);
+  } catch (error: any) {
+    console.error("[Chat API Error]:", error);
     return NextResponse.json(
-      { text: `System Error: ${err.message}`, parts: [] },
+      { error: error?.message || "Failed to generate reply. Please try again." },
       { status: 500 }
     );
   }

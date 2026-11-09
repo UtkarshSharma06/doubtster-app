@@ -344,13 +344,13 @@ summary:focus-visible {
   font-family: var(--pen);
 }
 
-p, .q, .step, .meta, .eq, h1, h2 {
+.paper p, .paper .q, .paper .step, .paper .meta, .paper .eq, .paper h1, .paper h2 {
   margin: 0;
   padding: 0;
   line-height: var(--lh);
 }
 
-.gap {
+.paper .gap {
   height: var(--lh);
   min-height: var(--lh);
   max-height: var(--lh);
@@ -358,7 +358,7 @@ p, .q, .step, .meta, .eq, h1, h2 {
   padding: 0;
 }
 
-h1 {
+.paper h1 {
   font-family: var(--pen);
   font-weight: 700;
   font-size: calc(var(--fs) * 2.2);
@@ -370,7 +370,7 @@ h1 {
   display: inline-block;
 }
 
-h1:after {
+.paper h1:after {
   content: "";
   position: absolute;
   left: -2px;
@@ -382,7 +382,7 @@ h1:after {
   transform: rotate(-0.7deg);
 }
 
-h2 {
+.paper h2 {
   font-family: var(--pen);
   font-weight: 700;
   font-size: calc(var(--fs) * 1.6);
@@ -394,7 +394,7 @@ h2 {
   display: inline-block;
 }
 
-h2:after {
+.paper h2:after {
   content: "";
   position: absolute;
   left: 0;

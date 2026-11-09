@@ -1,13 +1,18 @@
-import { createServerClient } from '@supabase/ssr'
+﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://qpsauvbbcpnzmocoacfw.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy'
 
+const CSP_FRAME_ANCESTORS = "frame-ancestors 'self' https://app.italostudy.com https://italostudy.com http://localhost:5173 http://localhost:3000 https://*.italostudy.com"
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
+
+  // Ensure CSP frame-ancestors is present on all responses for ItaloStudy embedding
+  supabaseResponse.headers.set('Content-Security-Policy', CSP_FRAME_ANCESTORS);
 
   // If Supabase environment variables are missing (e.g. unconfigured deployment), pass through
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
@@ -28,8 +33,13 @@ export async function updateSession(request: NextRequest) {
             supabaseResponse = NextResponse.next({
               request,
             })
+            supabaseResponse.headers.set('Content-Security-Policy', CSP_FRAME_ANCESTORS);
             cookiesToSet.forEach(({ name, value, options }) =>
-              supabaseResponse.cookies.set(name, value, options)
+              supabaseResponse.cookies.set(name, value, {
+                ...options,
+                sameSite: 'none',
+                secure: true,
+              })
             )
           } catch {
             // Non-mutating context
@@ -59,12 +69,17 @@ export async function updateSession(request: NextRequest) {
     return url;
   };
 
+  const isEmbed = request.nextUrl.searchParams.get('embed') === '1' || request.nextUrl.searchParams.get('embed') === 'true';
+
   if (
     !user &&
     !isDevBypass &&
     (request.nextUrl.pathname.startsWith('/app') || request.nextUrl.pathname.startsWith('/onboarding'))
   ) {
-    return NextResponse.redirect(getRedirectUrl('/login'));
+    const target = isEmbed ? '/login?embed=1' : '/login';
+    const redirectRes = NextResponse.redirect(getRedirectUrl(target));
+    redirectRes.headers.set('Content-Security-Policy', CSP_FRAME_ANCESTORS);
+    return redirectRes;
   }
 
   // If user is logged in, redirect them away from auth pages to /app
@@ -72,7 +87,10 @@ export async function updateSession(request: NextRequest) {
     user &&
     (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup'))
   ) {
-    return NextResponse.redirect(getRedirectUrl('/app'));
+    const target = isEmbed ? '/app?embed=1' : '/app';
+    const redirectRes = NextResponse.redirect(getRedirectUrl(target));
+    redirectRes.headers.set('Content-Security-Policy', CSP_FRAME_ANCESTORS);
+    return redirectRes;
   }
 
   return supabaseResponse

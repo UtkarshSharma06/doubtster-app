@@ -165,7 +165,7 @@
 .pg-auth .otp-lead{font-size:14px;color:var(--mute);margin-top:4px}
 .pg-auth .otp-email{font-weight:600;color:var(--ink);word-break:break-all}
 .pg-auth .otp-input-wrap{margin:18px 0 14px}
-.pg-auth .otp-code-input{width:100%;height:56px;border-radius:12px;border:2px solid #C9CFDC;font-size:26px;letter-spacing:.36em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;background:#FAFBFD;color:var(--ink);transition:all .18s}
+.pg-auth .otp-code-input{width:100%;height:56px;border-radius:12px;border:2px solid #C9CFDC;font-size:23px;letter-spacing:.22em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;background:#FAFBFD;color:var(--ink);transition:all .18s}
 .pg-auth .otp-code-input:focus{outline:0;border-color:var(--blue);background:#fff;box-shadow:0 0 0 4px rgba(47,123,255,.16)}
 .pg-auth .otp-actions{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:13px;color:var(--mute)}
 .pg-auth .otp-resend{color:var(--blue);font-weight:500;cursor:pointer;background:none;border:0;padding:0;font-size:13px}

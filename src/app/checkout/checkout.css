@@ -49,7 +49,7 @@
 .co .spin{width:20px;height:20px;border-radius:50%;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;animation:sp .7s linear infinite;display:none}
 .co .pay.busy .spin{display:block}
 .co .pay.busy .lock, .co .pay.busy .txt{display:none}
-.co .pay.busy:after{content:"Processing";font-weight:700}
+.co .pay.busy:after{content:"Setting up checkout...";font-weight:700}
 @keyframes sp{to{transform:rotate(360deg)}}
 .co .banner{display:none;border:1px solid #F3C4C6;background:#FEF3F3;color:#8F1D22;border-radius:var(--radius);padding:12px 14px;font-size:14px}
 .co .banner.on{display:block}
@@ -69,6 +69,7 @@
 .co #dodo-inline-checkout{min-height:360px;position:relative;background:#fff;border-radius:12px}
 .co #dodo-inline-checkout iframe{background:#fff!important;color-scheme:light!important}
 .co .skel{position:absolute;inset:0;display:grid;gap:16px;align-content:start;pointer-events:none;background:#fff;z-index:2;transition:opacity .2s ease}
+.co .skel-status{font-size:13px;font-weight:600;color:var(--mute);padding:2px 0}
 .co #dodo-inline-checkout[data-dodo-ready="true"] .skel,
 .co #dodo-inline-checkout:has(iframe) .skel{display:none!important;opacity:0!important;visibility:hidden!important}
 .co .skel i{display:block;height:46px;border-radius:12px;background:linear-gradient(90deg,#F0F1F4 25%,#E6E8EE 37%,#F0F1F4 63%);background-size:400% 100%;animation:sk 1.3s ease infinite}
@@ -78,8 +79,11 @@
 @keyframes sk{0%{background-position:100% 50%}100%{background-position:0 50%}}
 .co.liveopen #pay, .co.liveopen .trust, .co.liveopen #fine{display:none}
 .co.liveopen #g-cons{display:none}
-.co .again{display:none;margin-top:14px;font-size:14px;background:none;border:0;color:#1B57C8;text-decoration:underline;padding:0}
-.co.liveopen .again{display:inline-block}
+.co .co-foot-actions{display:none;align-items:center;justify-content:space-between;gap:14px;margin-top:16px;flex-wrap:wrap}
+.co.liveopen .co-foot-actions{display:flex}
+.co .again{margin-top:0;font-size:13.5px;background:none;border:0;color:#1B57C8;text-decoration:underline;padding:0}
+.co .co-direct-link{font-size:13px;color:#1B57C8;text-decoration:underline;font-weight:500;display:inline-flex;align-items:center}
+.co .co-direct-link:hover{color:#0d3da3}
 @media (max-width:900px){.co .wrap{grid-template-columns:1fr}.co .L{justify-content:stretch}.co .Li{max-width:none;min-height:0;padding:22px 20px 22px}.co .brand{margin-top:16px}.co .kick{margin-top:20px}.co .due b{font-size:44px}.co .sumtog{display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:18px;border:0;border-top:1px solid rgba(255,255,255,.16);background:none;color:#fff;padding:14px 0 0;font-size:14px;font-weight:600}.co .sumtog svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;transition:transform .2s}.co .sumtog[aria-expanded=true] svg{transform:rotate(180deg)}.co .collapsible{display:none}.co .collapsible.open{display:block}.co .Lfoot{display:none}.co .Ri{max-width:none;padding:28px 20px 28px;min-height:0}.co .Rfoot{margin-top:28px}}
 @media (prefers-reduced-motion:reduce){.co *{animation:none!important;transition:none!important}}
 .co .chk input{width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--blue)}

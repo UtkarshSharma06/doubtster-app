@@ -5,7 +5,7 @@ import { NotebookNotes } from "@/components/notes/NotebookNotes";
 import { NotebookDoc } from "@/lib/notebookSchema";
 
 // Fixture 0: Exact slide from the reference screenshot: Chapter 4 Quadratic Equations Example 15
-export const FIXTURE_EX15_QUADRATIC_BOAT: NotebookDoc = {
+const FIXTURE_EX15_QUADRATIC_BOAT: NotebookDoc = {
   title: "Quadratic Equations",
   shortTitle: "Quadratic Equations",
   chapter: "Chapter 4",

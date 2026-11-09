@@ -12,11 +12,11 @@ export async function POST(request: Request) {
     const cleanToken = String(token || "").trim().replace(/\D/g, "");
 
     if (!cleanEmail || !cleanToken) {
-      return NextResponse.json({ error: "Email and 6-digit verification code are required." }, { status: 400 });
+      return NextResponse.json({ error: "Email and verification code are required." }, { status: 400 });
     }
 
-    if (cleanToken.length !== 6) {
-      return NextResponse.json({ error: "Verification code must be 6 digits." }, { status: 400 });
+    if (cleanToken.length !== 8 && cleanToken.length !== 6) {
+      return NextResponse.json({ error: "Verification code must be 8 digits (or 6 digits)." }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -53,19 +53,53 @@ export async function POST(request: Request) {
 
     // If student, attach college metadata and register college signup
     let collegeMatch: any = null;
-    if (isStudent) {
+    if (isStudent || cleanEmail.includes("@")) {
       const collegeRes = await checkCollegeDomain(cleanEmail);
       if (collegeRes.approved && collegeRes.college) {
         collegeMatch = collegeRes.college;
+        const grantedCredits = Number(collegeMatch.credits ?? 10);
         if (user) {
           await supabase.auth.updateUser({
             data: {
               is_student: true,
               college_id: collegeMatch.id,
               college_name: collegeMatch.name,
+              college_credits: grantedCredits,
               name: name || undefined,
             },
           });
+
+          // Ensure app_state in Supabase has the college credits immediately
+          try {
+            const { data: stRow } = await supabase
+              .from("app_state")
+              .select("state")
+              .eq("user_id", user.id)
+              .maybeSingle();
+
+            const st = stRow?.state || {};
+            if (!st.collegeCreditsGranted) {
+              st.pcredits = Math.max(st.pcredits || 0, grantedCredits);
+              st.collegeCreditsGranted = true;
+              st.college = {
+                id: collegeMatch.id,
+                name: collegeMatch.name,
+                domain: collegeMatch.domain,
+                credits: grantedCredits,
+              };
+
+              await supabase.from("app_state").upsert(
+                {
+                  user_id: user.id,
+                  state: st,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: "user_id" }
+              );
+            }
+          } catch (stErr: any) {
+            console.warn("[verify-otp] Failed to initialize college credits in app_state:", stErr?.message);
+          }
         }
       }
     }
