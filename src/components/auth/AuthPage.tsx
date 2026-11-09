@@ -508,41 +508,6 @@ export function AuthPage({ mode }: { mode: Mode }) {
                         <span>{c.google}</span>
                       </button>
 
-                      <button
-                        className="gbtn italobtn"
-                        type="button"
-                        onClick={() => {
-                          window.location.href = "https://app.italostudy.com/Doubtster?partner_sso=1";
-                        }}
-                        style={{
-                          marginTop: "8px",
-                          background: "#0f172a",
-                          color: "#ffffff",
-                          border: "1px solid rgba(255, 255, 255, 0.12)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "10px",
-                          fontWeight: 500,
-                          fontSize: "14px",
-                          cursor: "pointer"
-                        }}
-                      >
-                        <span style={{ fontSize: "16px" }}>🇮🇹</span>
-                        <span>Continue with ItaloStudy</span>
-                        <span style={{ 
-                          fontSize: "10px", 
-                          background: "rgba(16, 185, 129, 0.2)", 
-                          color: "#10b981", 
-                          padding: "2px 6px", 
-                          borderRadius: "999px",
-                          fontWeight: 600,
-                          marginLeft: "auto"
-                        }}>
-                          10 Free Credits
-                        </span>
-                      </button>
-
                       <div className="or"><span>or use your email</span></div>
                     </>
                   ) : (
