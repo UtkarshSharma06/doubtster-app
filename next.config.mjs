@@ -2,6 +2,20 @@
 const nextConfig = {
   reactStrictMode: false,
   allowedDevOrigins: ["127.0.0.1", "localhost", "0.0.0.0"],
+  async redirects() {
+    return [
+      {
+        source: '/Doubtster',
+        destination: '/app',
+        permanent: false,
+      },
+      {
+        source: '/doubtster',
+        destination: '/app',
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {
